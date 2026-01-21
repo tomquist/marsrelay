@@ -5,10 +5,11 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
+#include "esphome/components/mqtt/mqtt_backend_esp32.h"
+#include "esphome/components/mqtt/mqtt_client.h"
 
 extern "C" {
 #include "mosq_broker.h"
-#include "mosquitto.h"
 }
 
 #include "freertos/FreeRTOS.h"
@@ -48,7 +49,9 @@ class MosquittoBroker : public Component {
   uint16_t max_clients_{10};
   TaskHandle_t broker_task_handle_{nullptr};
   struct mosq_broker_config broker_config_{};
-  struct mosquitto *publish_client_{nullptr};
+  mqtt::MQTTBackendESP32 publish_client_;
+  mqtt::MQTTClientState publish_state_{mqtt::MQTT_CLIENT_DISCONNECTED};
+  uint32_t connect_begin_{0};
   std::vector<MosquittoMessageTrigger *> message_triggers_;
 };
 
