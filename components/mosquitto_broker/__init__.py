@@ -11,6 +11,8 @@ DEPENDENCIES = ["esp32"]
 
 CONF_ON_MESSAGE = "on_message"
 CONF_MAX_CLIENTS = "max_clients"
+CONF_TLS = "tls"
+CONF_TLS_SKIP_VERIFICATION = "tls_skip_verification"
 
 mosquitto_broker_ns = cg.esphome_ns.namespace("mosquitto_broker")
 MosquittoBroker = mosquitto_broker_ns.class_("MosquittoBroker", cg.Component)
@@ -23,7 +25,9 @@ CONFIG_SCHEMA = (
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(MosquittoBroker),
-            cv.Optional(CONF_PORT, default=1883): cv.port,
+            cv.Optional(CONF_TLS, default=True): cv.boolean,
+            cv.Optional(CONF_TLS_SKIP_VERIFICATION, default=False): cv.boolean,
+            cv.Optional(CONF_PORT): cv.port,  # Default will be set based on TLS
             cv.Optional(CONF_MAX_CLIENTS, default=10): cv.int_range(min=1, max=100),
             cv.Optional(CONF_ON_MESSAGE): automation.validate_automation(
                 {
@@ -40,7 +44,16 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
-    cg.add(var.set_port(config[CONF_PORT]))
+    # Set TLS first, then port (port default depends on TLS)
+    cg.add(var.set_tls(config[CONF_TLS]))
+    cg.add(var.set_tls_skip_verification(config[CONF_TLS_SKIP_VERIFICATION]))
+    
+    # Set port - use default based on TLS if not specified
+    port = config.get(CONF_PORT)
+    if port is None:
+        port = 8883 if config[CONF_TLS] else 1883
+    cg.add(var.set_port(port))
+    
     cg.add(var.set_max_clients(config[CONF_MAX_CLIENTS]))
 
     esp32.add_idf_component(name="espressif/mosquitto", ref="2.0.20")

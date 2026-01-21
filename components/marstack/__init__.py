@@ -11,9 +11,9 @@ CONF_ON_REQUEST = "on_request"
 
 AUTO_LOAD = ["web_server_base"]
 
-marstack_webserver_ns = cg.esphome_ns.namespace("marstack_webserver")
-MarstackWebServer = marstack_webserver_ns.class_("MarstackWebServer", cg.Component)
-MarstackRequestTrigger = marstack_webserver_ns.class_(
+marstack_ns = cg.esphome_ns.namespace("marstack")
+Marstack = marstack_ns.class_("Marstack", cg.Component)
+MarstackRequestTrigger = marstack_ns.class_(
     "MarstackRequestTrigger",
     automation.Trigger.template(
         cg.std_string, cg.std_string, cg.std_string, cg.std_string
@@ -22,7 +22,7 @@ MarstackRequestTrigger = marstack_webserver_ns.class_(
 
 CONFIG_SCHEMA = cv.Schema(
     {
-        cv.GenerateID(): cv.declare_id(MarstackWebServer),
+        cv.GenerateID(): cv.declare_id(Marstack),
         cv.GenerateID(CONF_WEB_SERVER_BASE_ID): cv.use_id(
             web_server_base.WebServerBase
         ),

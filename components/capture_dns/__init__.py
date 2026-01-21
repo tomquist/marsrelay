@@ -31,8 +31,8 @@ def AUTO_LOAD() -> list[str]:
 DEPENDENCIES = ["wifi"]
 CODEOWNERS = ["@marsrelay"]
 
-captive_dns_ns = cg.esphome_ns.namespace("captive_dns")
-CaptiveDns = captive_dns_ns.class_("CaptiveDns", cg.Component)
+capture_dns_ns = cg.esphome_ns.namespace("capture_dns")
+CaptiveDns = capture_dns_ns.class_("CaptiveDns", cg.Component)
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
@@ -69,7 +69,7 @@ def _final_validate(config: ConfigType) -> ConfigType:
     if CORE.is_esp32:
         from esphome.components import socket
 
-        socket.consume_sockets(1, "captive_dns")(config)
+        socket.consume_sockets(1, "capture_dns")(config)
 
     return config
 
@@ -81,7 +81,7 @@ FINAL_VALIDATE_SCHEMA = _final_validate
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
-    cg.add_define("USE_CAPTIVE_DNS")
+    cg.add_define("USE_CAPTURE_DNS")
 
     if CORE.using_arduino:
         if CORE.is_esp8266:

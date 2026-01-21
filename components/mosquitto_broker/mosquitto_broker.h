@@ -10,6 +10,8 @@
 
 extern "C" {
 #include "mosq_broker.h"
+#include "esp_tls.h"
+#include "mqtt_client.h"
 }
 
 #include "freertos/FreeRTOS.h"
@@ -35,9 +37,12 @@ class MosquittoBroker : public Component {
 
   void set_port(uint16_t port) { port_ = port; }
   void set_max_clients(uint16_t max_clients) { max_clients_ = max_clients; }
+  void set_tls(bool tls) { tls_enabled_ = tls; }
+  void set_tls_skip_verification(bool skip) { tls_skip_verification_ = skip; }
 
   void publish_message(const std::string &topic, const std::string &payload);
   void add_message_trigger(MosquittoMessageTrigger *trigger) { this->message_triggers_.push_back(trigger); }
+  void set_publish_state(mqtt::MQTTClientState state) { this->publish_state_ = state; }
 
  protected:
   static void broker_task_(void *param);
@@ -47,14 +52,17 @@ class MosquittoBroker : public Component {
   void ensure_publish_client_();
 
   uint16_t port_{1883};
-  uint16_t max_clients_{10};
+  uint16_t max_clients_{20};
   TaskHandle_t broker_task_handle_{nullptr};
   struct mosq_broker_config broker_config_{};
+  esp_tls_cfg_server_t tls_cfg_{};
   bool broker_started_{false};
+  bool tls_enabled_{false};
+  bool tls_skip_verification_{false};
   uint32_t broker_start_at_{0};
-  mqtt::MQTTBackendESP32 publish_client_;
   mqtt::MQTTClientState publish_state_{mqtt::MQTT_CLIENT_DISCONNECTED};
   uint32_t connect_begin_{0};
+  esp_mqtt_client_handle_t esp_mqtt_client_{nullptr};
   std::vector<MosquittoMessageTrigger *> message_triggers_;
 };
 

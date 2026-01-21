@@ -9,7 +9,7 @@
 #include <vector>
 
 namespace esphome {
-namespace marstack_webserver {
+namespace marstack {
 
 class MarstackRequestTrigger : public Trigger<std::string, std::string, std::string, std::string> {
  public:
@@ -19,12 +19,13 @@ class MarstackRequestTrigger : public Trigger<std::string, std::string, std::str
   void *parent_;
 };
 
-class MarstackWebServer : public Component, public AsyncWebHandler {
+class Marstack : public Component, public AsyncWebHandler {
  public:
-  explicit MarstackWebServer(web_server_base::WebServerBase *base) : base_(base) {}
+  explicit Marstack(web_server_base::WebServerBase *base) : base_(base) {}
 
   bool canHandle(AsyncWebServerRequest *request) const override;
   void handleRequest(AsyncWebServerRequest *request) override;
+  void onBody(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total);
   void add_request_trigger(MarstackRequestTrigger *trigger) { this->request_triggers_.push_back(trigger); }
 
   void setup() override {
@@ -36,8 +37,11 @@ class MarstackWebServer : public Component, public AsyncWebHandler {
  protected:
   web_server_base::WebServerBase *base_;
   std::vector<MarstackRequestTrigger *> request_triggers_;
+  // Store POST body data as it arrives via onBody callback
+  std::string post_body_buffer_;
+  AsyncWebServerRequest *current_post_request_{nullptr};
 };
 
-}  // namespace marstack_webserver
+}  // namespace marstack
 }  // namespace esphome
 #endif

@@ -6,7 +6,7 @@
 #include "esphome/components/network/ip_address.h"
 #include "esphome/components/socket/socket.h"
 
-namespace esphome::captive_dns {
+namespace esphome::capture_dns {
 
 class DNSServer {
  public:
@@ -22,6 +22,6 @@ class DNSServer {
   uint8_t buffer_[DNS_BUFFER_SIZE];
 };
 
-}  // namespace esphome::captive_dns
+}  // namespace esphome::capture_dns
 
 #endif  // USE_ESP32

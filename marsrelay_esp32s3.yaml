@@ -8,10 +8,20 @@ substitutions:
   mqtt_broker: 192.168.1.10
   mqtt_username: "mqtt_user"
   mqtt_password: "mqtt_password"
+  mqtt_topic_prefix: "marsrelay"
+  psram:
+    # Set to true if your ESP32S3 has PSRAM.
+    enabled: true
+    # This needs to be set correctly! See https://esphome.io/components/psram/ for more information.
+    mode: quad
 
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
+
+psram:
+  mode: ${psram.mode}
+  disabled: ${false if psram.enabled else true}
 
 esp32:
   board: esp32-s3-devkitc-1
@@ -20,6 +30,11 @@ esp32:
     type: esp-idf
     sdkconfig_options:
       CONFIG_LWIP_IPV6: y
+      CONFIG_ESP_TLS_INSECURE: y  # Allow skipping certificate verification
+      CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY: y  # Skip server certificate verification
+      CONFIG_LWIP_MAX_SOCKETS: "58"  # Reduced from 64 to ensure LWIP_SOCKET_OFFSET >= 6 (FD_SETSIZE=64, so offset = 64-58=6)
+      CONFIG_LWIP_TCP_MSL: "30"  # Reduce TIME_WAIT timeout from default 60s to 30s (in seconds)
+      CONFIG_LWIP_SOCKET_OFFSET: "6"  # Required for esp_vfs_console compatibility (must be >= 6 for esp_vfs_console)
 
 external_components:
   - source:
@@ -34,9 +49,10 @@ wifi:
   ap:
     ssid: ${ap_ssid}
     password: ${ap_password}
+  use_psram: ${psram.enabled}
 
-captive_dns:
-  id: captive_dns_server
+capture_dns:
+  id: capture_dns_server
 
 mqtt:
   id: mqtt_client
@@ -45,38 +61,53 @@ mqtt:
   password: ${mqtt_password}
   on_connect:
     - lambda: |-
-        id(mqtt_client).subscribe("marstek_energy/+", [=](const std::string &topic, const std::string &payload) {
+        id(mqtt_client).subscribe("marstek_energy/+/App/+/ctrl", [=](const std::string &topic, const std::string &payload) {
+          ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
+          if (topic.find("/App/") == std::string::npos) {
+            ESP_LOGD("MQTT", "Not a control message, skipping");
+            return;
+          }
+          if (topic.find("/ctrl") == std::string::npos) {
+            ESP_LOGD("MQTT", "Not a control message, skipping");
+            return;
+          }
           id(local_broker).publish_message(topic, payload);
         });
 
 mosquitto_broker:
   id: local_broker
-  port: 1883
-  max_clients: 10
+  tls: true
+  tls_skip_verification: true
+  port: 8883
+  max_clients: 5
   on_message:
-    - then:
-        - mqtt.publish:
-            topic: !lambda |-
-              return topic;
-            payload: !lambda |-
-              return payload;
+    # Only forward messages containing /device/
+    - if:
+        condition:
+          lambda: 'return topic.find("/device/") != std::string::npos;'
+        then:
+          - mqtt.publish:
+              topic: !lambda |-
+                return topic;
+              payload: !lambda |-
+                return payload;
 
 web_server:
   port: 80
+  version: 3
 
-marstack_webserver:
+marstack:
   id: marstack_http
   on_request:
     - logger.log:
         format: "HTTP %s %s body=%s"
         args: [method.c_str(), url.c_str(), body.c_str()]
     - mqtt.publish:
-        topic: !lambda |-
-          std::string topic = "marsrelay/request";
-          if (!source_ip.empty()) {
-            topic += "/";
-            topic += source_ip;
-          }
-          return topic;
+        topic: ${mqtt_topic_prefix}/request
         payload: !lambda |-
-          return body;
+          return json::build_json([&](JsonObject root) {
+            root["source_ip"] = source_ip;
+            root["url"] = url;
+            root["method"] = method;
+            root["body"] = body;
+          });
