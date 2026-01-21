@@ -20,6 +20,8 @@ esp32:
     type: esp-idf
     sdkconfig_options:
       CONFIG_LWIP_IPV6: y
+      CONFIG_MOSQUITTO_BROKER: y
+      CONFIG_MOSQUITTO_CLIENT: y
 
 external_components:
   - source:
