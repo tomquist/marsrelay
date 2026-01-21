@@ -45,10 +45,9 @@ mqtt:
       then:
         - mosquitto_broker.publish_message:
             id: local_broker
-            topic: !lambda |-
-              return topic;
+            topic: "marstek_energy/relay"
             payload: !lambda |-
-              return payload;
+              return x;
 
 mosquitto_broker:
   id: local_broker
