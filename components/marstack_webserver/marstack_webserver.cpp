@@ -15,6 +15,7 @@ static const char *const TAG = "marstack_webserver";
 namespace {
 
 void log_query_params(AsyncWebServerRequest *request, const char *path) {
+#if defined(USE_ARDUINO)
   if (request->params() == 0) {
     return;
   }
@@ -34,6 +35,10 @@ void log_query_params(AsyncWebServerRequest *request, const char *path) {
   if (!query.empty()) {
     ESP_LOGD(TAG, "%s query params: %s", path, query.c_str());
   }
+#else
+  (void) request;
+  (void) path;
+#endif
 }
 
 std::string homepage_html(const char *hostname) {
@@ -107,11 +112,13 @@ void MarstackWebServer::handleRequest(AsyncWebServerRequest *request) {
   std::string body = request->arg("plain").c_str();
   std::string method = method_name(request->method());
   std::string source_ip;
+#if defined(USE_ARDUINO)
   if (request->client() != nullptr) {
     char ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
     request->client()->remoteIP().str_to(ip_buf);
     source_ip = ip_buf;
   }
+#endif
   for (auto *trigger : this->request_triggers_) {
     trigger->trigger(method, url.c_str(), body, source_ip);
   }
