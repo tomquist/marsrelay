@@ -7,8 +7,12 @@
 #include "esphome/core/automation.h"
 
 extern "C" {
+#include "mosq_broker.h"
 #include "mosquitto.h"
 }
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace esphome {
 namespace mosquitto_broker {
@@ -34,13 +38,17 @@ class MosquittoBroker : public Component {
   void add_message_trigger(MosquittoMessageTrigger *trigger) { this->message_triggers_.push_back(trigger); }
 
  protected:
-  static void on_message_callback(struct mosquitto *mosq, void *userdata, const struct mosquitto_message *message);
+  static void broker_task_(void *param);
+  static void on_broker_message_callback(char *client, char *topic, char *data, int len, int qos, int retain);
 
-  void handle_message_(const struct mosquitto_message *message);
+  void handle_message_(char *topic, char *data, int len);
+  void ensure_publish_client_();
 
   uint16_t port_{1883};
   uint16_t max_clients_{10};
-  struct mosquitto *mosq_{nullptr};
+  TaskHandle_t broker_task_handle_{nullptr};
+  struct mosq_broker_config broker_config_{};
+  struct mosquitto *publish_client_{nullptr};
   std::vector<MosquittoMessageTrigger *> message_triggers_;
 };
 
