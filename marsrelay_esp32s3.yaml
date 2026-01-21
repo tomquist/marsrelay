@@ -46,9 +46,9 @@ mqtt:
         - mosquitto_broker.publish_message:
             id: local_broker
             topic: !lambda |-
-              return x.topic;
+              return topic;
             payload: !lambda |-
-              return x.payload;
+              return payload;
 
 mosquitto_broker:
   id: local_broker
@@ -58,9 +58,9 @@ mosquitto_broker:
     - then:
         - mqtt.publish:
             topic: !lambda |-
-              return x.topic;
+              return topic;
             payload: !lambda |-
-              return x.payload;
+              return payload;
 
 web_server:
   port: 80
