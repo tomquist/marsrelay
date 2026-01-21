@@ -12,11 +12,11 @@ void MosquittoBroker::setup() {
   ESP_LOGI(TAG, "Starting Mosquitto broker on port %u", this->port_);
   mosquitto_lib_init();
 
-  this->broker_config_.host = "0.0.0.0";
+  static char broker_host[] = "0.0.0.0";
+  this->broker_config_.host = broker_host;
   this->broker_config_.port = this->port_;
   this->broker_config_.tls_cfg = nullptr;
   this->broker_config_.handle_message_cb = &MosquittoBroker::on_broker_message_callback;
-  this->broker_config_.handle_connect_cb = nullptr;
 
   global_broker = this;
   if (this->broker_task_handle_ == nullptr) {
