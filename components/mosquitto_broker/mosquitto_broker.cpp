@@ -1,6 +1,6 @@
 #include "mosquitto_broker.h"
 
-#include "esphome/core/helpers.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -33,7 +33,7 @@ void MosquittoBroker::loop() {
   this->publish_client_.loop();
   if (!this->publish_client_.connected()) {
     this->publish_state_ = mqtt::MQTT_CLIENT_DISCONNECTED;
-    if (millis() - this->connect_begin_ > 5000) {
+    if (esphome::millis() - this->connect_begin_ > 5000) {
       this->ensure_publish_client_();
     }
     return;
@@ -102,7 +102,7 @@ void MosquittoBroker::ensure_publish_client_() {
   this->publish_client_.set_server("127.0.0.1", this->port_);
   this->publish_client_.connect();
   this->publish_state_ = mqtt::MQTT_CLIENT_CONNECTING;
-  this->connect_begin_ = millis();
+  this->connect_begin_ = esphome::millis();
 }
 
 }  // namespace mosquitto_broker
