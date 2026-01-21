@@ -31,6 +31,7 @@ class MosquittoBroker : public Component {
   void setup() override;
   void loop() override;
   void dump_config() override;
+  float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
   void set_port(uint16_t port) { port_ = port; }
   void set_max_clients(uint16_t max_clients) { max_clients_ = max_clients; }
@@ -49,6 +50,8 @@ class MosquittoBroker : public Component {
   uint16_t max_clients_{10};
   TaskHandle_t broker_task_handle_{nullptr};
   struct mosq_broker_config broker_config_{};
+  bool broker_started_{false};
+  uint32_t broker_start_at_{0};
   mqtt::MQTTBackendESP32 publish_client_;
   mqtt::MQTTClientState publish_state_{mqtt::MQTT_CLIENT_DISCONNECTED};
   uint32_t connect_begin_{0};

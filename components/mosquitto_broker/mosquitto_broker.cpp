@@ -18,18 +18,22 @@ void MosquittoBroker::setup() {
   this->broker_config_.handle_message_cb = &MosquittoBroker::on_broker_message_callback;
 
   global_broker = this;
-  if (this->broker_task_handle_ == nullptr) {
-    xTaskCreate(&MosquittoBroker::broker_task_, "mosq_broker", 4096, this, 5, &this->broker_task_handle_);
-  }
+  this->broker_start_at_ = esphome::millis();
 
   this->publish_client_.set_on_disconnect([this](mqtt::MQTTClientDisconnectReason reason) {
     (void) reason;
     this->publish_state_ = mqtt::MQTT_CLIENT_DISCONNECTED;
   });
-  this->ensure_publish_client_();
 }
 
 void MosquittoBroker::loop() {
+  if (!this->broker_started_ && esphome::millis() - this->broker_start_at_ > 1000) {
+    if (this->broker_task_handle_ == nullptr) {
+      xTaskCreate(&MosquittoBroker::broker_task_, "mosq_broker", 4096, this, 5, &this->broker_task_handle_);
+    }
+    this->broker_started_ = true;
+    this->ensure_publish_client_();
+  }
   this->publish_client_.loop();
   if (!this->publish_client_.connected()) {
     this->publish_state_ = mqtt::MQTT_CLIENT_DISCONNECTED;
@@ -48,6 +52,10 @@ void MosquittoBroker::loop() {
 void MosquittoBroker::dump_config() { ESP_LOGCONFIG(TAG, "Mosquitto Broker:"); }
 
 void MosquittoBroker::publish_message(const std::string &topic, const std::string &payload) {
+  if (!this->broker_started_) {
+    ESP_LOGW(TAG, "Broker not started, skipping publish");
+    return;
+  }
   if (this->publish_state_ != mqtt::MQTT_CLIENT_CONNECTED || !this->publish_client_.connected()) {
     this->ensure_publish_client_();
   }
@@ -92,6 +100,9 @@ void MosquittoBroker::handle_message_(char *topic, char *data, int len) {
 }
 
 void MosquittoBroker::ensure_publish_client_() {
+  if (!this->broker_started_) {
+    return;
+  }
   if (this->publish_state_ == mqtt::MQTT_CLIENT_CONNECTING) {
     return;
   }
