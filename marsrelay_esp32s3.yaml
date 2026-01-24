@@ -9,7 +9,8 @@ substitutions:
   mqtt_username: "mqtt_user"
   mqtt_password: "mqtt_password"
   mqtt_topic_prefix: "marsrelay"
-  # UDP proxy port for power meter emulation (see https://github.com/tomquist/b2500-meter)
+  # UDP proxy port for Shelly power meter discovery (see https://github.com/tomquist/b2500-meter)
+  # Only needed for Shelly device emulation (not CT001/CT002 which use TCP):
   # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
   # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
   udp_proxy_port: "1010"
