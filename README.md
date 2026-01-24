@@ -110,6 +110,9 @@ wifi:
 capture_dns:
   id: capture_dns_server
 
+udp_proxy:
+  - port: 1010
+
 mqtt:
   id: mqtt_client
   broker: ${mqtt_broker}
@@ -216,6 +219,7 @@ This repository contains ESPHome external components for building Marsrelay:
 - **`mosquitto_broker`**: An embedded MQTT broker that forwards messages from Marstek devices to your main MQTT broker
 - **`marstack`**: A web server component that implements Marstek's API endpoints
 - **`capture_dns`**: DNS redirection component that intercepts DNS queries and redirects them to the device
+- **`udp_proxy`**: UDP proxy component that bridges UDP broadcasts between the AP network (where Marstek devices connect) and the STA network (your home network). This enables zero feed-in control by forwarding UDP discovery/control packets between networks. Supports multiple ports.
 - **`wifi`**: Patched WiFi component to support simultaneous access point while station mode is enabled
 
 ### Requirements

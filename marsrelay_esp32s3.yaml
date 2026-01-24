@@ -55,9 +55,9 @@ capture_dns:
   id: capture_dns_server
 
 udp_proxy:
-  id: udp_bridge
-  port: 48899
-  session_timeout: 30s
+  - id: udp_bridge
+    port: 48899
+    session_timeout: 30s
 
 mqtt:
   id: mqtt_client

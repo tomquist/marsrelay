@@ -22,6 +22,7 @@ def AUTO_LOAD() -> list[str]:
 
 DEPENDENCIES = ["wifi"]
 CODEOWNERS = ["@marsrelay"]
+MULTI_CONF = True
 
 CONF_SESSION_TIMEOUT = "session_timeout"
 
