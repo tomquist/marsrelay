@@ -9,6 +9,7 @@ substitutions:
   mqtt_username: "mqtt_user"
   mqtt_password: "mqtt_password"
   mqtt_topic_prefix: "marsrelay"
+  udp_proxy_port: "1010"
   psram:
     # Set to true if your ESP32S3 has PSRAM.
     enabled: true
@@ -55,9 +56,7 @@ capture_dns:
   id: capture_dns_server
 
 udp_proxy:
-  - id: udp_bridge
-    port: 48899
-    session_timeout: 30s
+  - port: ${udp_proxy_port}
 
 mqtt:
   id: mqtt_client
