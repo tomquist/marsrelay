@@ -9,6 +9,9 @@ substitutions:
   mqtt_username: "mqtt_user"
   mqtt_password: "mqtt_password"
   mqtt_topic_prefix: "marsrelay"
+  # UDP proxy port for power meter emulation (see https://github.com/tomquist/b2500-meter)
+  # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
+  # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
   udp_proxy_port: "1010"
   psram:
     # Set to true if your ESP32S3 has PSRAM.
@@ -55,6 +58,8 @@ wifi:
 capture_dns:
   id: capture_dns_server
 
+# UDP proxy bridges broadcasts between AP and STA networks for power meter discovery
+# Add multiple entries if you need to support different firmware versions
 udp_proxy:
   - port: ${udp_proxy_port}
 
