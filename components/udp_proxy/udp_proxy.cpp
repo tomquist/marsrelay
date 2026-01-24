@@ -203,12 +203,17 @@ void UdpProxy::process_ap_socket() {
     return;
   }
 
-  network::IPAddress src_ip;
-  src_ip = client_addr.sin_addr.s_addr;
+  ip_addr_t src_ip_addr;
+  IP_ADDR4(&src_ip_addr,
+           (client_addr.sin_addr.s_addr >> 0) & 0xFF,
+           (client_addr.sin_addr.s_addr >> 8) & 0xFF,
+           (client_addr.sin_addr.s_addr >> 16) & 0xFF,
+           (client_addr.sin_addr.s_addr >> 24) & 0xFF);
+  network::IPAddress src_ip(&src_ip_addr);
   uint16_t src_port = ntohs(client_addr.sin_port);
 
   char src_ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
-  ESP_LOGD(TAG, "Received %d bytes on AP socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
+  ESP_LOGD(TAG, "Received %zd bytes on AP socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
 
   // Check if this is from the AP network (our target)
   if (!this->is_ap_network(src_ip)) {
@@ -245,7 +250,7 @@ void UdpProxy::process_ap_socket() {
   if (sent < 0) {
     ESP_LOGE(TAG, "Failed to forward to STA network: %d (%s)", errno, strerror(errno));
   } else {
-    ESP_LOGD(TAG, "Forwarded %d bytes to STA network broadcast", sent);
+    ESP_LOGD(TAG, "Forwarded %zd bytes to STA network broadcast", sent);
   }
 }
 
@@ -276,12 +281,17 @@ void UdpProxy::process_sta_socket() {
     return;
   }
 
-  network::IPAddress src_ip;
-  src_ip = sender_addr.sin_addr.s_addr;
+  ip_addr_t src_ip_addr;
+  IP_ADDR4(&src_ip_addr,
+           (sender_addr.sin_addr.s_addr >> 0) & 0xFF,
+           (sender_addr.sin_addr.s_addr >> 8) & 0xFF,
+           (sender_addr.sin_addr.s_addr >> 16) & 0xFF,
+           (sender_addr.sin_addr.s_addr >> 24) & 0xFF);
+  network::IPAddress src_ip(&src_ip_addr);
   uint16_t src_port = ntohs(sender_addr.sin_port);
 
   char src_ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
-  ESP_LOGD(TAG, "Received %d bytes on STA socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
+  ESP_LOGD(TAG, "Received %zd bytes on STA socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
 
   // Forward response to all active AP clients
   if (this->sessions_.empty()) {
