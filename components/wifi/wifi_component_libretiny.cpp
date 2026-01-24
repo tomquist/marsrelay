@@ -685,16 +685,18 @@ void WiFiComponent::wifi_scan_done_callback_() {
 }
 
 #ifdef USE_WIFI_AP
-bool WiFiComponent::wifi_ap_ip_config_(const optional<ManualIP> &manual_ip) {
+bool WiFiComponent::wifi_ap_ip_config_(const WiFiAP &ap) {
   // enable AP
   if (!this->wifi_mode_({}, true))
     return false;
 
-  if (manual_ip.has_value()) {
-    return WiFi.softAPConfig(manual_ip->static_ip, manual_ip->gateway, manual_ip->subnet);
-  } else {
-    return WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+#ifdef USE_WIFI_MANUAL_IP
+  if (ap.get_manual_ip().has_value()) {
+    const auto &manual_ip = ap.get_manual_ip().value();
+    return WiFi.softAPConfig(manual_ip.static_ip, manual_ip.gateway, manual_ip.subnet);
   }
+#endif
+  return WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
 }
 
 bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
@@ -702,22 +704,15 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
   if (!this->wifi_mode_({}, true))
     return false;
 
-#ifdef USE_WIFI_MANUAL_IP
-  if (!this->wifi_ap_ip_config_(ap.get_manual_ip())) {
+  if (!this->wifi_ap_ip_config_(ap)) {
     ESP_LOGV(TAG, "wifi_ap_ip_config_ failed");
     return false;
   }
-#else
-  if (!this->wifi_ap_ip_config_({})) {
-    ESP_LOGV(TAG, "wifi_ap_ip_config_ failed");
-    return false;
-  }
-#endif
 
   yield();
 
   return WiFi.softAP(ap.get_ssid().c_str(), ap.get_password().empty() ? NULL : ap.get_password().c_str(),
-                     ap.has_channel() ? ap.get_channel() : 1, ap.get_hidden());
+                     ap.has_channel() ? ap.get_channel() : 1, ap.get_hidden(), ap.get_max_connections());
 }
 
 network::IPAddress WiFiComponent::wifi_soft_ap_ip() { return {WiFi.softAPIP()}; }

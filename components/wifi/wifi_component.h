@@ -200,6 +200,14 @@ class WiFiAP {
 #endif
   bool get_hidden() const;
 
+  // AP-specific DHCP configuration
+  void set_dhcp_lease_start(const network::IPAddress &start) { dhcp_lease_start_ = start; }
+  void set_dhcp_lease_limit(uint8_t limit) { dhcp_lease_limit_ = limit; }
+  void set_max_connections(uint8_t max_conn) { max_connections_ = max_conn; }
+  const optional<network::IPAddress> &get_dhcp_lease_start() const { return dhcp_lease_start_; }
+  uint8_t get_dhcp_lease_limit() const { return dhcp_lease_limit_; }
+  uint8_t get_max_connections() const { return max_connections_; }
+
  protected:
   std::string ssid_;
   std::string password_;
@@ -209,11 +217,14 @@ class WiFiAP {
 #ifdef USE_WIFI_MANUAL_IP
   optional<ManualIP> manual_ip_;
 #endif
+  optional<network::IPAddress> dhcp_lease_start_;  // Optional DHCP lease start IP
   // Group small types together to minimize padding
-  bssid_t bssid_{};     // 6 bytes, all zeros = any/not set
-  uint8_t channel_{0};  // 1 byte, 0 = auto/not set
-  int8_t priority_{0};  // 1 byte
-  bool hidden_{false};  // 1 byte (+ 3 bytes end padding to 4-byte align)
+  bssid_t bssid_{};             // 6 bytes, all zeros = any/not set
+  uint8_t channel_{0};          // 1 byte, 0 = auto/not set
+  int8_t priority_{0};          // 1 byte
+  uint8_t dhcp_lease_limit_{10};  // 1 byte, default 10 addresses
+  uint8_t max_connections_{5};    // 1 byte, default 5 clients
+  bool hidden_{false};          // 1 byte
 };
 
 class WiFiScanResult {
@@ -592,7 +603,7 @@ class WiFiComponent : public Component {
   bool wifi_scan_start_(bool passive);
 
 #ifdef USE_WIFI_AP
-  bool wifi_ap_ip_config_(const optional<ManualIP> &manual_ip);
+  bool wifi_ap_ip_config_(const WiFiAP &ap);
   bool wifi_start_ap_(const WiFiAP &ap);
 #endif  // USE_WIFI_AP
 

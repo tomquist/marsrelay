@@ -56,6 +56,15 @@ wifi:
   ap:
     ssid: ${ap_ssid}
     password: ${ap_password}
+    # Optional AP network configuration:
+    # channel: 1                    # WiFi channel (1-14, default: 1)
+    # max_connections: 5            # Max simultaneous clients (1-10, default: 5)
+    # dhcp_lease_start: 192.168.4.100  # First IP for DHCP clients (default: AP IP + 99)
+    # dhcp_lease_limit: 10          # Number of DHCP addresses (1-255, default: 10)
+    # manual_ip:                    # Static IP configuration for the AP
+    #   static_ip: 192.168.4.1
+    #   gateway: 192.168.4.1
+    #   subnet: 255.255.255.0
   use_psram: ${psram.enabled}
 
 capture_dns:

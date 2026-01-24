@@ -938,7 +938,7 @@ bool WiFiComponent::wifi_scan_start_(bool passive) {
 }
 
 #ifdef USE_WIFI_AP
-bool WiFiComponent::wifi_ap_ip_config_(const optional<ManualIP> &manual_ip) {
+bool WiFiComponent::wifi_ap_ip_config_(const WiFiAP &ap) {
   esp_err_t err;
 
   // enable AP
@@ -952,11 +952,15 @@ bool WiFiComponent::wifi_ap_ip_config_(const optional<ManualIP> &manual_ip) {
   }
 
   esp_netif_ip_info_t info;
-  if (manual_ip.has_value()) {
-    info.ip = manual_ip->static_ip;
-    info.gw = manual_ip->gateway;
-    info.netmask = manual_ip->subnet;
-  } else {
+#ifdef USE_WIFI_MANUAL_IP
+  if (ap.get_manual_ip().has_value()) {
+    const auto &manual_ip = ap.get_manual_ip().value();
+    info.ip = manual_ip.static_ip;
+    info.gw = manual_ip.gateway;
+    info.netmask = manual_ip.subnet;
+  } else
+#endif
+  {
     info.ip = network::IPAddress(192, 168, 4, 1);
     info.gw = network::IPAddress(192, 168, 4, 1);
     info.netmask = network::IPAddress(255, 255, 255, 0);
@@ -976,14 +980,21 @@ bool WiFiComponent::wifi_ap_ip_config_(const optional<ManualIP> &manual_ip) {
 
   dhcps_lease_t lease;
   lease.enable = true;
-  network::IPAddress start_address = network::IPAddress(&info.ip);
-  start_address += 99;
+  network::IPAddress start_address;
+  // Use configured DHCP lease start if provided, otherwise default to AP IP + 99
+  if (ap.get_dhcp_lease_start().has_value()) {
+    start_address = ap.get_dhcp_lease_start().value();
+  } else {
+    start_address = network::IPAddress(&info.ip);
+    start_address += 99;
+  }
   lease.start_ip = start_address;
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   char ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
 #endif
   ESP_LOGV(TAG, "DHCP server IP lease start: %s", start_address.str_to(ip_buf));
-  start_address += 10;
+  // Use configured DHCP lease limit
+  start_address += ap.get_dhcp_lease_limit();
   lease.end_ip = start_address;
   ESP_LOGV(TAG, "DHCP server IP lease end: %s", start_address.str_to(ip_buf));
   err = esp_netif_dhcps_option(s_ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_REQUESTED_IP_ADDRESS, &lease, sizeof(lease));
@@ -1035,7 +1046,7 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
   memcpy(reinterpret_cast<char *>(conf.ap.ssid), ap.get_ssid().c_str(), ap.get_ssid().size());
   conf.ap.channel = ap.has_channel() ? ap.get_channel() : 1;
   conf.ap.ssid_hidden = ap.get_ssid().size();
-  conf.ap.max_connection = 5;
+  conf.ap.max_connection = ap.get_max_connections();
   conf.ap.beacon_interval = 100;
 
   if (ap.get_password().empty()) {
@@ -1059,17 +1070,10 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
     return false;
   }
 
-#ifdef USE_WIFI_MANUAL_IP
-  if (!this->wifi_ap_ip_config_(ap.get_manual_ip())) {
+  if (!this->wifi_ap_ip_config_(ap)) {
     ESP_LOGE(TAG, "wifi_ap_ip_config_ failed:");
     return false;
   }
-#else
-  if (!this->wifi_ap_ip_config_({})) {
-    ESP_LOGE(TAG, "wifi_ap_ip_config_ failed:");
-    return false;
-  }
-#endif
 
   return true;
 }

@@ -182,11 +182,26 @@ WIFI_NETWORK_BASE = cv.Schema(
 )
 
 CONF_AP_TIMEOUT = "ap_timeout"
+CONF_DHCP_LEASE_START = "dhcp_lease_start"
+CONF_DHCP_LEASE_LIMIT = "dhcp_lease_limit"
+CONF_MAX_CONNECTIONS = "max_connections"
+
+# Default values for AP configuration
+DEFAULT_DHCP_LEASE_LIMIT = 10
+DEFAULT_MAX_CONNECTIONS = 5
+
 WIFI_NETWORK_AP = WIFI_NETWORK_BASE.extend(
     {
         cv.Optional(
             CONF_AP_TIMEOUT, default=DEFAULT_AP_TIMEOUT
         ): cv.positive_time_period_milliseconds,
+        cv.Optional(CONF_DHCP_LEASE_START): cv.ipv4address,
+        cv.Optional(
+            CONF_DHCP_LEASE_LIMIT, default=DEFAULT_DHCP_LEASE_LIMIT
+        ): cv.int_range(min=1, max=255),
+        cv.Optional(
+            CONF_MAX_CONNECTIONS, default=DEFAULT_MAX_CONNECTIONS
+        ): cv.int_range(min=1, max=10),
     }
 )
 
@@ -468,11 +483,16 @@ async def to_code(config):
         ip_config = conf.get(CONF_MANUAL_IP)
         if ip_config:
             has_manual_ip = True
-        cg.with_local_variable(
-            conf[CONF_ID],
-            WiFiAP(),
-            lambda ap: cg.add(var.set_ap(wifi_network(conf, ap, ip_config))),
-        )
+
+        def configure_ap(ap: cg.MockObj) -> None:
+            cg.add(var.set_ap(wifi_network(conf, ap, ip_config)))
+            # Configure DHCP lease settings
+            if CONF_DHCP_LEASE_START in conf:
+                cg.add(ap.set_dhcp_lease_start(safe_ip(conf[CONF_DHCP_LEASE_START])))
+            cg.add(ap.set_dhcp_lease_limit(conf[CONF_DHCP_LEASE_LIMIT]))
+            cg.add(ap.set_max_connections(conf[CONF_MAX_CONNECTIONS]))
+
+        cg.with_local_variable(conf[CONF_ID], WiFiAP(), configure_ap)
         cg.add(var.set_ap_timeout(conf[CONF_AP_TIMEOUT]))
         cg.add_define("USE_WIFI_AP")
     elif CORE.is_esp32 and not CORE.using_arduino:
