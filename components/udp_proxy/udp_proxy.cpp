@@ -37,7 +37,8 @@ network::IPAddress UdpProxy::get_ap_ip() {
 }
 
 network::IPAddress UdpProxy::get_sta_ip() {
-  return wifi::global_wifi_component->wifi_sta_ip();
+  network::IPAddresses addresses = wifi::global_wifi_component->get_ip_addresses();
+  return addresses[0];
 }
 
 bool UdpProxy::is_ap_network(const network::IPAddress &ip) {
