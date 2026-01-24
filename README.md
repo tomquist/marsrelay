@@ -64,6 +64,13 @@ substitutions:
   mqtt_username: ""
   mqtt_password: ""
   mqtt_topic_prefix: "marsrelay"
+  # UDP proxy port for power meter discovery (see https://github.com/tomquist/b2500-meter)
+  # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
+  # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
+  # - Port 2222: Shelly 3EM gen3
+  # - Port 2223: Shelly Pro EM50
+  # - Port 12345: CT001/CT002/CT003
+  udp_proxy_port: "1010"
   psram:
     # Set to true if your ESP32S3 has PSRAM.
     enabled: true
@@ -109,6 +116,11 @@ wifi:
 
 capture_dns:
   id: capture_dns_server
+
+# UDP proxy bridges broadcasts between AP and STA networks for power meter discovery
+# Add multiple entries if you need to support different firmware versions
+udp_proxy:
+  - port: ${udp_proxy_port}
 
 mqtt:
   id: mqtt_client
@@ -216,6 +228,7 @@ This repository contains ESPHome external components for building Marsrelay:
 - **`mosquitto_broker`**: An embedded MQTT broker that forwards messages from Marstek devices to your main MQTT broker
 - **`marstack`**: A web server component that implements Marstek's API endpoints
 - **`capture_dns`**: DNS redirection component that intercepts DNS queries and redirects them to the device
+- **`udp_proxy`**: UDP proxy component that bridges UDP broadcasts between the AP network (where Marstek devices connect) and the STA network (your home network). This enables zero feed-in control by forwarding UDP discovery/control packets between networks. Supports multiple ports.
 - **`wifi`**: Patched WiFi component to support simultaneous access point while station mode is enabled
 
 ### Requirements

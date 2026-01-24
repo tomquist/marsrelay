@@ -9,3 +9,4 @@ def test_marsrelay_component_generation(generate_main):
     assert "mosquitto_broker::MosquittoBroker" in main_cpp
     assert "marstack::Marstack" in main_cpp
     assert "capture_dns::CaptiveDns" in main_cpp
+    assert "udp_proxy::UdpProxy" in main_cpp
