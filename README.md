@@ -64,10 +64,12 @@ substitutions:
   mqtt_username: ""
   mqtt_password: ""
   mqtt_topic_prefix: "marsrelay"
-  # UDP proxy port for Shelly power meter discovery (see https://github.com/tomquist/b2500-meter)
-  # Only needed for Shelly device emulation (not CT001/CT002 which use TCP):
+  # UDP proxy port for power meter discovery (see https://github.com/tomquist/b2500-meter)
   # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
   # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
+  # - Port 2222: Shelly 3EM gen3
+  # - Port 2223: Shelly Pro EM50
+  # - Port 12345: CT001/CT002/CT003
   udp_proxy_port: "1010"
   psram:
     # Set to true if your ESP32S3 has PSRAM.
