@@ -28,3 +28,18 @@ jobs:
         uses: esphome/build-action@v6
         with:
           yaml-file: marsrelay_esp32s3.yaml
+
+  build-remote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Replace local components with remote source
+        run: |
+          yq -i '.external_components[0].source = "github://${{ github.repository }}@${{ github.sha }}"' marsrelay_esp32s3.yaml
+      - name: Show modified external_components config
+        run: yq '.external_components' marsrelay_esp32s3.yaml
+      - name: Build firmware with remote components
+        uses: esphome/build-action@v6
+        with:
+          yaml-file: marsrelay_esp32s3.yaml
