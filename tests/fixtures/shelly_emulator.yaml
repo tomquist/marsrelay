@@ -16,7 +16,7 @@ wifi:
   password: "testpass"
   ap:
     ssid: "fallback"
-    password: "fallback"
+    password: "fallbackpass"
 
 logger:
 
