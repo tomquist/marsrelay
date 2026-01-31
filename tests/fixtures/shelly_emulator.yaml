@@ -13,7 +13,7 @@ external_components:
 
 wifi:
   ssid: "test"
-  password: "test"
+  password: "testpass"
   ap:
     ssid: "fallback"
     password: "fallback"
