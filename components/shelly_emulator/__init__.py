@@ -14,13 +14,15 @@ from esphome.components import sensor
 
 
 def AUTO_LOAD() -> list[str]:
-    auto_load = []
+    # Ensure required core components are loaded so their build flags/libs are available.
+    # In particular, the ESPHome `json` component pulls in ArduinoJson for both Arduino and ESP-IDF.
+    auto_load: list[str] = []
     if CORE.is_esp32:
-        auto_load.append("socket")
+        auto_load.extend(["socket", "json"])
     return auto_load
 
 
-DEPENDENCIES = ["wifi"]
+DEPENDENCIES = ["wifi", "json"]
 CODEOWNERS = ["@marsrelay"]
 MULTI_CONF = True
 
