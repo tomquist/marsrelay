@@ -219,6 +219,34 @@ Copy the `deviceType` and `deviceId` you found into your [hm2mqtt](https://githu
 
 ---
 
+## Optional: Shelly UDP Emulator (Issue #6)
+
+Marsrelay can emulate a Shelly Gen2 energy meter (UDP JSON-RPC) using ESPHome sensor values.
+This is based on the Shelly emulation implemented in <https://github.com/tomquist/b2500-meter>.
+
+Example:
+
+```yaml
+sensor:
+  - platform: template
+    id: grid_power_w
+    name: Grid Power
+    unit_of_measurement: W
+
+shelly_emulator:
+  # Use the port expected by your Marstek/B2500 firmware
+  # (e.g. 1010 / 2220 / 2222 / 2223)
+  port: 1010
+  device_id: marsrelay
+  # One sensor (total) or three sensors (a/b/c phases)
+  power_sensors:
+    - grid_power_w
+```
+
+Supported methods:
+- `EM.GetStatus` (returns `a_act_power`, `b_act_power`, `c_act_power`, `total_act_power`)
+- `EM1.GetStatus` (returns `act_power`)
+
 ## Technical Details
 
 This repository contains ESPHome external components for building Marsrelay:
@@ -229,6 +257,7 @@ This repository contains ESPHome external components for building Marsrelay:
 - **`marstack`**: A web server component that implements Marstek's API endpoints
 - **`capture_dns`**: DNS redirection component that intercepts DNS queries and redirects them to the device
 - **`udp_proxy`**: UDP proxy component that bridges UDP broadcasts between the AP network (where Marstek devices connect) and the STA network (your home network). This enables zero feed-in control by forwarding UDP discovery/control packets between networks. Supports multiple ports.
+- **`shelly_emulator`**: Shelly UDP (Gen2) emulator for `EM.GetStatus`/`EM1.GetStatus` based on ESPHome sensor(s). Can be used to provide Shelly-compatible power readings directly from the ESP.
 - **`wifi`**: Patched WiFi component to support simultaneous access point while station mode is enabled
 
 ### Requirements

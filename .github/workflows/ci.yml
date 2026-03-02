@@ -29,6 +29,16 @@ jobs:
         with:
           yaml-file: marsrelay_esp32s3.yaml
 
+  build-shelly-emulator-example:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build Shelly emulator example config (E2E)
+        uses: esphome/build-action@v6
+        with:
+          yaml-file: tests/fixtures/shelly_emulator.yaml
+
   build-remote:
     runs-on: ubuntu-latest
     steps:
