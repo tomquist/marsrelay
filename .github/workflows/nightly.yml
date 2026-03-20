@@ -1,0 +1,12 @@
+name: Nightly CI
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+
+jobs:
+  nightly:
+    uses: ./.github/workflows/ci-dispatch.yml
+    with:
+      esphome_version: "latest"
+      run_tests: true

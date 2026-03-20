@@ -1,0 +1,68 @@
+name: CI Dispatch
+
+on:
+  workflow_call:
+    inputs:
+      esphome_version:
+        description: ESPHome version for build/test jobs (e.g. 2026.3.0 or latest)
+        required: true
+        type: string
+      run_tests:
+        description: Run pytest component tests
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  test:
+    if: ${{ inputs.run_tests }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install esphome==${{ inputs.esphome_version }} pytest
+      - name: Run component tests
+        run: pytest -q
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build firmware
+        uses: esphome/build-action@v6
+        with:
+          version: ${{ inputs.esphome_version }}
+          yaml-file: marsrelay_esp32s3.yaml
+
+  build-remote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Replace local components with remote source
+        run: |
+          yq -i '.external_components[0].source = "github://${{ github.repository }}@${{ github.sha }}"' marsrelay_esp32s3.yaml
+      - name: Show modified external_components config
+        run: yq '.external_components' marsrelay_esp32s3.yaml
+      - name: Build firmware with remote components
+        uses: esphome/build-action@v6
+        with:
+          version: ${{ inputs.esphome_version }}
+          yaml-file: marsrelay_esp32s3.yaml
+
+  build-shelly-emulator-example:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build Shelly emulator example config (E2E)
+        uses: esphome/build-action@v6
+        with:
+          version: ${{ inputs.esphome_version }}
+          yaml-file: tests/fixtures/shelly_emulator.yaml
