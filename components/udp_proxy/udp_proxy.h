@@ -68,10 +68,10 @@ class UdpProxy : public Component {
   bool active_{false};
 
   /// Socket listening on the AP network (receives from Marstek device)
-  std::unique_ptr<socket::Socket> ap_socket_{nullptr};
+  std::unique_ptr<socket::ListenSocket> ap_socket_{nullptr};
 
   /// Socket for STA network communication (forwards to home network, receives responses)
-  std::unique_ptr<socket::Socket> sta_socket_{nullptr};
+  std::unique_ptr<socket::ListenSocket> sta_socket_{nullptr};
 
   /// Map of STA-side source port to session info for routing responses back
   /// Key is a session identifier (we use a simple incrementing counter)

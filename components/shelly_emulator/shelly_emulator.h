@@ -33,7 +33,7 @@ class ShellyEmulator : public Component {
 
   std::vector<sensor::Sensor *> power_sensors_;
 
-  std::unique_ptr<socket::Socket> socket_;
+  std::unique_ptr<socket::ListenSocket> socket_;
   bool active_{false};
 
   uint8_t buffer_[1024]{};

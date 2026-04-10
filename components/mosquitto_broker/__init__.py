@@ -74,6 +74,7 @@ async def to_code(config):
             cv.Required("payload"): cv.templatable(cv.string_strict),
         }
     ),
+    synchronous=True,
 )
 async def publish_message_action_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])

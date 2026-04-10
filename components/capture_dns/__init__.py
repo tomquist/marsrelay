@@ -69,7 +69,7 @@ def _final_validate(config: ConfigType) -> ConfigType:
     if CORE.is_esp32:
         from esphome.components import socket
 
-        socket.consume_sockets(1, "capture_dns")(config)
+        socket.consume_sockets(1, "capture_dns", socket.SocketType.UDP)(config)
 
     return config
 
