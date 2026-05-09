@@ -106,7 +106,16 @@ void MosquittoBroker::setup() {
 void MosquittoBroker::loop() {
   if (!this->broker_started_ && esphome::millis() - this->broker_start_at_ > 1000) {
     if (this->broker_task_handle_ == nullptr) {
-      xTaskCreate(&MosquittoBroker::broker_task_, "mosq_broker", 4096, this, 5, &this->broker_task_handle_);
+      // 12 KiB stack: mbedTLS handshakes inside the broker task can use 8 KiB+ on
+      // their own, so 4 KiB overflowed as soon as a TLS client connected.
+      BaseType_t rc = xTaskCreate(&MosquittoBroker::broker_task_, "mosq_broker", 12288, this, 5,
+                                  &this->broker_task_handle_);
+      if (rc != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create mosq_broker task (rc=%d), will retry", (int) rc);
+        this->broker_task_handle_ = nullptr;
+        this->broker_start_at_ = esphome::millis();  // back off ~1s before retrying
+        return;
+      }
     }
     this->broker_started_ = true;
     // Wait a bit longer for broker to be ready before connecting publish client
