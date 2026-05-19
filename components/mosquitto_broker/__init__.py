@@ -17,6 +17,61 @@ CONF_ID_MAPPINGS = "id_mappings"
 CONF_DEVICE = "device"
 CONF_EXTERNAL = "external"
 
+# Topic segments that have structural meaning in the marsrelay bridge. If a
+# mapping's `device` or `external` value collided with one of these, the
+# translator would rewrite the structural segment and break the `/device/`
+# filter the local->external bridge relies on, which can in turn enable a
+# forwarding loop. Reject up front instead.
+RESERVED_ID_SEGMENTS = frozenset(
+    {"marstek_energy", "App", "device", "ctrl"}
+)
+
+
+def _validate_id_segment(value):
+    value = cv.string_strict(value)
+    if not value:
+        raise cv.Invalid("ID must not be empty")
+    if "/" in value:
+        raise cv.Invalid("ID must not contain '/' (it is a single topic segment)")
+    if "+" in value or "#" in value:
+        raise cv.Invalid("ID must not contain MQTT wildcard characters ('+' or '#')")
+    if value in RESERVED_ID_SEGMENTS:
+        raise cv.Invalid(
+            f"ID must not be one of the reserved topic segments: "
+            f"{', '.join(sorted(RESERVED_ID_SEGMENTS))}"
+        )
+    return value
+
+
+def _validate_id_mappings(value):
+    seen_devices = set()
+    seen_externals = set()
+    for index, mapping in enumerate(value):
+        device = mapping[CONF_DEVICE]
+        external = mapping[CONF_EXTERNAL]
+        if device == external:
+            raise cv.Invalid(
+                f"id_mappings[{index}]: 'device' and 'external' must differ "
+                f"(both were '{device}')"
+            )
+        if device in seen_devices:
+            raise cv.Invalid(
+                f"id_mappings[{index}]: duplicate device id '{device}'"
+            )
+        if external in seen_externals:
+            raise cv.Invalid(
+                f"id_mappings[{index}]: duplicate external id '{external}'"
+            )
+        if device in seen_externals or external in seen_devices:
+            raise cv.Invalid(
+                f"id_mappings[{index}]: id '{device if device in seen_externals else external}' "
+                f"is used on both sides across mappings, which would cause ambiguous translation"
+            )
+        seen_devices.add(device)
+        seen_externals.add(external)
+    return value
+
+
 mosquitto_broker_ns = cg.esphome_ns.namespace("mosquitto_broker")
 MosquittoBroker = mosquitto_broker_ns.class_("MosquittoBroker", cg.Component)
 MosquittoMessageTrigger = mosquitto_broker_ns.class_(
@@ -37,13 +92,16 @@ CONFIG_SCHEMA = (
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MosquittoMessageTrigger),
                 }
             ),
-            cv.Optional(CONF_ID_MAPPINGS, default=[]): cv.ensure_list(
-                cv.Schema(
-                    {
-                        cv.Required(CONF_DEVICE): cv.string_strict,
-                        cv.Required(CONF_EXTERNAL): cv.string_strict,
-                    }
-                )
+            cv.Optional(CONF_ID_MAPPINGS, default=[]): cv.All(
+                cv.ensure_list(
+                    cv.Schema(
+                        {
+                            cv.Required(CONF_DEVICE): _validate_id_segment,
+                            cv.Required(CONF_EXTERNAL): _validate_id_segment,
+                        }
+                    )
+                ),
+                _validate_id_mappings,
             ),
         }
     )
