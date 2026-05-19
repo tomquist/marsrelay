@@ -153,6 +153,7 @@ void MosquittoBroker::dump_config() {
     ESP_LOGCONFIG(TAG, "  Skip Verification: %s", this->tls_skip_verification_ ? "Yes" : "No");
   }
   ESP_LOGCONFIG(TAG, "  Max Clients: %u", this->max_clients_);
+  ESP_LOGCONFIG(TAG, "  ID Mappings: %u", (unsigned) this->id_mappings_.size());
 }
 
 void MosquittoBroker::publish_message(const std::string &topic, const std::string &payload) {
@@ -167,11 +168,78 @@ void MosquittoBroker::publish_message(const std::string &topic, const std::strin
     ESP_LOGW(TAG, "Publish client not connected, skipping publish");
     return;
   }
-  
-  int msg_id = esp_mqtt_client_publish(this->esp_mqtt_client_, topic.c_str(), payload.c_str(), payload.length(), 0, 0);
-  if (msg_id < 0) {
-    ESP_LOGW(TAG, "Publish failed for %s (error: %d)", topic.c_str(), msg_id);
+
+  std::string translated = this->translate_external_to_device_(topic);
+  if (translated != topic) {
+    ESP_LOGV(TAG, "Translated external topic '%s' to device topic '%s'", topic.c_str(), translated.c_str());
   }
+
+  int msg_id = esp_mqtt_client_publish(this->esp_mqtt_client_, translated.c_str(), payload.c_str(), payload.length(), 0, 0);
+  if (msg_id < 0) {
+    ESP_LOGW(TAG, "Publish failed for %s (error: %d)", translated.c_str(), msg_id);
+  }
+}
+
+std::string MosquittoBroker::translate_external_to_device_(const std::string &topic) const {
+  if (this->id_mappings_.empty()) {
+    return topic;
+  }
+  std::string result;
+  result.reserve(topic.size());
+  size_t pos = 0;
+  while (pos <= topic.size()) {
+    size_t next = topic.find('/', pos);
+    size_t end = (next == std::string::npos) ? topic.size() : next;
+    bool replaced = false;
+    for (const auto &mapping : this->id_mappings_) {
+      const std::string &external = mapping.second;
+      if (end - pos == external.size() && topic.compare(pos, external.size(), external) == 0) {
+        result.append(mapping.first);
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) {
+      result.append(topic, pos, end - pos);
+    }
+    if (next == std::string::npos) {
+      break;
+    }
+    result.push_back('/');
+    pos = next + 1;
+  }
+  return result;
+}
+
+std::string MosquittoBroker::translate_device_to_external_(const std::string &topic) const {
+  if (this->id_mappings_.empty()) {
+    return topic;
+  }
+  std::string result;
+  result.reserve(topic.size());
+  size_t pos = 0;
+  while (pos <= topic.size()) {
+    size_t next = topic.find('/', pos);
+    size_t end = (next == std::string::npos) ? topic.size() : next;
+    bool replaced = false;
+    for (const auto &mapping : this->id_mappings_) {
+      const std::string &device = mapping.first;
+      if (end - pos == device.size() && topic.compare(pos, device.size(), device) == 0) {
+        result.append(mapping.second);
+        replaced = true;
+        break;
+      }
+    }
+    if (!replaced) {
+      result.append(topic, pos, end - pos);
+    }
+    if (next == std::string::npos) {
+      break;
+    }
+    result.push_back('/');
+    pos = next + 1;
+  }
+  return result;
 }
 
 void MosquittoBroker::broker_task_(void *param) {
@@ -200,8 +268,13 @@ void MosquittoBroker::handle_message_(char *topic, char *data, int len) {
   std::string topic_str(topic);
   std::string payload(data, len);
 
+  std::string translated = this->translate_device_to_external_(topic_str);
+  if (translated != topic_str) {
+    ESP_LOGV(TAG, "Translated device topic '%s' to external topic '%s'", topic_str.c_str(), translated.c_str());
+  }
+
   for (auto *trigger : this->message_triggers_) {
-    trigger->trigger(topic_str, payload);
+    trigger->trigger(translated, payload);
   }
 }
 

@@ -219,6 +219,39 @@ Copy the `deviceType` and `deviceId` you found into your [hm2mqtt](https://githu
 
 ---
 
+## Optional: Battery ID Mapping (Issue #19)
+
+Marstek batteries use a long ID in their cloud MQTT topics, while
+[hm2mqtt](https://github.com/tomquist/hm2mqtt) and
+[Hame Relay](https://github.com/tomquist/hame-relay) expect the battery's
+Bluetooth MAC address as the device ID. To bridge the two, marsrelay can
+rewrite the ID segment of every topic it forwards.
+
+Add an `id_mappings` list to the `mosquitto_broker:` block:
+
+```yaml
+mosquitto_broker:
+  id: local_broker
+  # ...existing options...
+  id_mappings:
+    - device: "<long-id-from-cloud-mqtt-topic>"
+      external: "<bluetooth-mac-address>"
+```
+
+For each pair, `device` is the long ID that appears in the topic on the local
+mosquitto broker (the one the battery uses for its cloud MQTT topics), and
+`external` is the Bluetooth MAC address that hm2mqtt / Hame Relay use as the
+device ID. Translation is applied in both directions automatically: control
+messages from hm2mqtt on `.../App/<external>/...` are rewritten to
+`.../App/<device>/...` before being delivered to the battery, and status
+messages from the battery on `.../device/<device>/...` are rewritten to
+`.../device/<external>/...` before being forwarded out.
+
+Use the `external` ID (the Bluetooth MAC) in your hm2mqtt / Hame Relay
+configuration.
+
+---
+
 ## Optional: Shelly UDP Emulator (Issue #6)
 
 Marsrelay can emulate a Shelly Gen2 energy meter (UDP JSON-RPC) using ESPHome sensor values.
