@@ -1,0 +1,37 @@
+esphome:
+  name: test-mqtt-id-mappings
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+wifi:
+  ssid: "test"
+  password: "testpass"
+  ap:
+    ssid: "fallback"
+    password: "fallbackpass"
+
+logger:
+
+mqtt:
+  broker: 127.0.0.1
+  username: "user"
+  password: "pass"
+
+mosquitto_broker:
+  id: local_broker
+  tls: false
+  port: 1883
+  id_mappings:
+    - device: "1111111111111111111111111111111111111111111111111111111111111111"
+      external: "aabbccddeeff"
+    - device: "22222222222222222222222222222222"
+      external: "aabbccddee00"

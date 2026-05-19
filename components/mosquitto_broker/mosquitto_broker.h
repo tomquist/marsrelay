@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "esphome/core/component.h"
@@ -43,6 +44,9 @@ class MosquittoBroker : public Component {
   void publish_message(const std::string &topic, const std::string &payload);
   void add_message_trigger(MosquittoMessageTrigger *trigger) { this->message_triggers_.push_back(trigger); }
   void set_publish_state(mqtt::MQTTClientState state) { this->publish_state_ = state; }
+  void add_id_mapping(const std::string &device, const std::string &external) {
+    this->id_mappings_.emplace_back(device, external);
+  }
 
  protected:
   static void broker_task_(void *param);
@@ -50,6 +54,8 @@ class MosquittoBroker : public Component {
 
   void handle_message_(char *topic, char *data, int len);
   void ensure_publish_client_();
+  std::string translate_external_to_device_(const std::string &topic) const;
+  std::string translate_device_to_external_(const std::string &topic) const;
 
   uint16_t port_{1883};
   uint16_t max_clients_{20};
@@ -64,6 +70,7 @@ class MosquittoBroker : public Component {
   uint32_t connect_begin_{0};
   esp_mqtt_client_handle_t esp_mqtt_client_{nullptr};
   std::vector<MosquittoMessageTrigger *> message_triggers_;
+  std::vector<std::pair<std::string, std::string>> id_mappings_;
 };
 
 template<typename... Ts> class PublishMessageAction : public Action<Ts...> {

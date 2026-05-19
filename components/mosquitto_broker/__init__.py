@@ -13,6 +13,9 @@ CONF_ON_MESSAGE = "on_message"
 CONF_MAX_CLIENTS = "max_clients"
 CONF_TLS = "tls"
 CONF_TLS_SKIP_VERIFICATION = "tls_skip_verification"
+CONF_ID_MAPPINGS = "id_mappings"
+CONF_DEVICE = "device"
+CONF_EXTERNAL = "external"
 
 mosquitto_broker_ns = cg.esphome_ns.namespace("mosquitto_broker")
 MosquittoBroker = mosquitto_broker_ns.class_("MosquittoBroker", cg.Component)
@@ -33,6 +36,14 @@ CONFIG_SCHEMA = (
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MosquittoMessageTrigger),
                 }
+            ),
+            cv.Optional(CONF_ID_MAPPINGS, default=[]): cv.ensure_list(
+                cv.Schema(
+                    {
+                        cv.Required(CONF_DEVICE): cv.string_strict,
+                        cv.Required(CONF_EXTERNAL): cv.string_strict,
+                    }
+                )
             ),
         }
     )
@@ -62,6 +73,9 @@ async def to_code(config):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         cg.add(var.add_message_trigger(trigger))
         await automation.build_automation(trigger, [(cg.std_string, "topic"), (cg.std_string, "payload")], conf)
+
+    for mapping in config.get(CONF_ID_MAPPINGS, []):
+        cg.add(var.add_id_mapping(mapping[CONF_DEVICE], mapping[CONF_EXTERNAL]))
 
 
 @automation.register_action(
