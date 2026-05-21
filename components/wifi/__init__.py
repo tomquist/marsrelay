@@ -54,10 +54,16 @@ from esphome.const import (
     CONF_TTLS_PHASE_2,
     CONF_USE_ADDRESS,
     CONF_USERNAME,
+    CONF_WIFI,
     Platform,
     PlatformFramework,
 )
-from esphome.core import CORE, CoroPriority, HexInt, coroutine_with_priority
+
+try:
+    from esphome.const import PLACEHOLDER_WIFI_SSID
+except ImportError:  # ESPHome < 2026.5.0
+    PLACEHOLDER_WIFI_SSID = "REPLACE_WITH_YOUR_WIFI_NETWORK"
+from esphome.core import CORE, CoroPriority, EsphomeError, HexInt, coroutine_with_priority
 import esphome.final_validate as fv
 from esphome.types import ConfigType
 
@@ -120,6 +126,44 @@ WiFiDisableAction = wifi_ns.class_("WiFiDisableAction", automation.Action)
 WiFiConfigureAction = wifi_ns.class_(
     "WiFiConfigureAction", automation.Action, cg.Component
 )
+
+
+def _placeholder_wifi_credentials(config: ConfigType) -> list[str]:
+    """Return locations where the dashboard's placeholder wifi SSID still appears."""
+    placeholders: list[str] = []
+    wifi_conf = config.get(CONF_WIFI)
+    if not wifi_conf:
+        return placeholders
+
+    for idx, network in enumerate(wifi_conf.get(CONF_NETWORKS, [])):
+        ssid = network.get(CONF_SSID)
+        if isinstance(ssid, str) and ssid == PLACEHOLDER_WIFI_SSID:
+            placeholders.append(f"wifi.networks[{idx}].ssid")
+
+    ap_conf = wifi_conf.get(CONF_AP)
+    if ap_conf:
+        ap_ssid = ap_conf.get(CONF_SSID)
+        if isinstance(ap_ssid, str) and ap_ssid == PLACEHOLDER_WIFI_SSID:
+            placeholders.append("wifi.ap.ssid")
+
+    return placeholders
+
+
+def check_placeholder_credentials(config: ConfigType) -> None:
+    """Raise EsphomeError if any wifi credential is the dashboard placeholder.
+
+    Called by ESPHome 2026.5.0+ at compile time.
+    """
+    locations = _placeholder_wifi_credentials(config)
+    if not locations:
+        return
+    formatted = ", ".join(locations)
+    raise EsphomeError(
+        f"wifi configuration still contains the dashboard placeholder value "
+        f"'{PLACEHOLDER_WIFI_SSID}' at: {formatted}. "
+        f"Open secrets.yaml and replace 'wifi_ssid' (and 'wifi_password') "
+        f"with your real wifi credentials before flashing."
+    )
 
 
 def validate_password(value):
