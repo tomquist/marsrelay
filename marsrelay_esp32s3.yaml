@@ -9,6 +9,8 @@ substitutions:
   mqtt_username: "mqtt_user"
   mqtt_password: "mqtt_password"
   mqtt_topic_prefix: "marsrelay"
+  # Timezone used to sync the battery clock (see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+  timezone: "Europe/Berlin"
   # UDP proxy port for power meter discovery (see https://github.com/tomquist/b2500-meter)
   # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
   # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
@@ -49,6 +51,13 @@ external_components:
       path: ./components
 
 logger:
+
+# Keeps the ESP32 system clock in sync so the marstack component serves the
+# correct date/time to the battery (GET /app/neng/getDateInfoeu.php).
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: ${timezone}
 
 wifi:
   ssid: ${wifi_ssid}
