@@ -53,7 +53,11 @@ void log_query_params(AsyncWebServerRequest *request, const char *path) {
 std::string formatted_date_string() {
   time_t now = time(nullptr);
   struct tm timeinfo;
-  gmtime_r(&now, &timeinfo);
+  // Use local time so the date handed to the battery honors the configured
+  // timezone. This relies on the system clock being set by a `time:` platform
+  // (e.g. sntp); without one the clock stays at ~1970 and the battery's time
+  // ends up out of sync.
+  localtime_r(&now, &timeinfo);
   char buffer[64];
   snprintf(buffer, sizeof(buffer), "_%04d_%02d_%02d_%02d_%02d_%02d_04_0_0_0", timeinfo.tm_year + 1900,
            timeinfo.tm_mon + 1, timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);

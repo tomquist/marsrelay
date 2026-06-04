@@ -64,6 +64,8 @@ substitutions:
   mqtt_username: ""
   mqtt_password: ""
   mqtt_topic_prefix: "marsrelay"
+  # Timezone used to sync the battery clock (see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
+  timezone: "Europe/Berlin"
   # UDP proxy port for power meter discovery (see https://github.com/tomquist/b2500-meter)
   # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
   # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
@@ -105,6 +107,13 @@ external_components:
       ref: main
 
 logger:
+
+# Keeps the ESP32 system clock in sync so the marstack component serves the
+# correct date/time to the battery (GET /app/neng/getDateInfoeu.php).
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: ${timezone}
 
 wifi:
   ssid: ${wifi_ssid}
@@ -189,6 +198,7 @@ Edit the `substitutions` section at the top of the configuration file:
 - **`ap_ssid`** and **`ap_password`**: The WiFi network name and password that your Marstek device will connect to (default is "marsrelay" / "marsrelay")
 - **`mqtt_broker`**: The IP address of your MQTT broker (e.g., `192.168.1.100`)
 - **`mqtt_username`** and **`mqtt_password`**: Your MQTT broker credentials (leave empty if not required)
+- **`timezone`**: Your local timezone (e.g. `Europe/Berlin`). Marsrelay uses this to keep the battery's clock in sync; if it's wrong the battery time will be off. See the [list of timezones](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
 - **`psram.enabled`** and **`psram.mode`**: Set according to your ESP32-S3 board specifications
 
 ### Step 3: Build and Flash
