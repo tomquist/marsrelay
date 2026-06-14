@@ -201,7 +201,7 @@ void Marstack::handleRequest(AsyncWebServerRequest *request) {
   ESP_LOGD(TAG, "Triggering request: method=%s, url=%s, body_length=%zu, body_preview=%.100s", 
            method.c_str(), url.c_str(), body.length(), body.c_str());
   for (auto *trigger : this->request_triggers_) {
-    trigger->trigger(method, url.c_str(), body, source_ip);
+    trigger->trigger(method, url, body, source_ip);
   }
 
   if (request->method() == HTTP_GET && url == "/prod/api/v1/setB2500Report") {
