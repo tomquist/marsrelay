@@ -1,0 +1,18 @@
+name: wifi-fork-check
+
+# Asserts that components/wifi is exactly pristine upstream ESPHome (at the
+# version pinned in components/wifi/UPSTREAM_VERSION) plus our recorded patch.
+# This catches a re-applied patch landing in the wrong place or any drift in the
+# vendored files -- the failure class behind the WiFi boot loop in issue #30.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify wifi fork == upstream + patch
+        run: ./scripts/check-wifi-fork.sh
