@@ -7,11 +7,17 @@ fallback that shuts down as soon as the STA associates.
 
 ## Current base
 
-- **Upstream version:** `2026.5.0`
-- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.5.0/esphome/components/wifi>
+- **Upstream version:** `2026.6.2`
+- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.6.2/esphome/components/wifi>
+
+The pinned version is stored in [`UPSTREAM_VERSION`](./UPSTREAM_VERSION), which
+is the single source of truth used by the tooling below.
 
 Everything in this directory is byte-for-byte identical to that upstream
-revision except for the patches described below.
+revision except for the single patch in
+[`patches/marsrelay-ap-sta.patch`](./patches/marsrelay-ap-sta.patch), which is
+also reflected inline in `wifi_component.cpp` (the patch is what actually
+ships). CI enforces this with `scripts/check-wifi-fork.sh`.
 
 ## The patch (AP + STA simultaneously)
 
@@ -27,40 +33,56 @@ with a `// marsrelay:` comment so they're easy to find:
    Upstream calls `this->wifi_mode_({}, false)` to disable the AP once the STA
    associates. We skip that call so AP+STA stay up together.
 
-To see the exact diff against upstream:
+To see (and verify) the exact diff against upstream:
 
 ```sh
-git clone --depth 1 --branch <version> https://github.com/esphome/esphome.git /tmp/esphome
-diff -ruN /tmp/esphome/esphome/components/wifi components/wifi
+scripts/check-wifi-fork.sh
 ```
 
-Expect only the two `// marsrelay:` hunks in `wifi_component.cpp`.
+It downloads pristine upstream at `UPSTREAM_VERSION`, applies the recorded
+patch, and asserts every file matches. Expect only the two `// marsrelay:`
+hunks in `wifi_component.cpp`.
 
 ## Updating to a newer ESPHome release
 
-When the nightly build breaks (or you want to bump ESPHome), re-fork rather
-than patching incrementally — upstream changes too much between releases for
-hand-merging to be safe:
+Updating is git-driven so the patch is carried by a real 3-way merge instead of
+being re-applied by hand. From the repo root:
 
-1. Pick the new upstream version, e.g. `2026.X.Y`.
-2. Clone upstream at that tag and copy `esphome/components/wifi/*` over this
-   directory (preserve this `README.md`):
-   ```sh
-   git clone --depth 1 --branch 2026.X.Y https://github.com/esphome/esphome.git /tmp/esphome
-   cp /tmp/esphome/esphome/components/wifi/{*.py,*.h,*.cpp} components/wifi/
-   ```
-3. Re-apply the two `// marsrelay:` patches in `wifi_component.cpp`. Search
-   upstream for the anchor lines `ESP_LOGI(TAG, "Starting fallback AP")` and
-   `ESP_LOGD(TAG, "Disabling AP")` to locate the spots.
-4. Bump `esphome_version` in `.github/workflows/ci.yml` (and ensure the
-   nightly's `latest` still resolves to the same major version, or pin it).
-5. Verify:
-   ```sh
-   esphome config marsrelay_esp32s3.yaml
-   esphome config tests/fixtures/shelly_emulator.yaml
-   pytest -q tests/
-   ```
-6. Update the **Current base** version at the top of this file.
+```sh
+scripts/update-wifi.sh 2026.X.Y
+```
+
+The script:
+
+1. Downloads the pristine upstream `wifi` component at `2026.X.Y` and commits it
+   as a **vendor import** (`vendor: import pristine esphome wifi 2026.X.Y`). That
+   commit becomes the merge base the *next* update merges against, so it has to
+   land in history.
+2. Re-applies [`patches/marsrelay-ap-sta.patch`](./patches/marsrelay-ap-sta.patch)
+   with `git apply --3way`. Because the patch records its base blob (the previous
+   vendor import), git does a true three-way merge: where upstream rewrote a
+   patched region you get **standard conflict markers** to resolve, not a silent
+   mis-apply.
+3. Regenerates the patch against the new base, bumps `UPSTREAM_VERSION`, the CI
+   `esphome_version` pin, and the **Current base** above, then runs
+   `scripts/check-wifi-fork.sh` to prove the result is exactly upstream + patch.
+
+If the merge is clean the script leaves the re-apply staged for you to review and
+commit; if it conflicts it prints the steps to finish manually. Either way, then
+validate the build:
+
+```sh
+esphome config marsrelay_esp32s3.yaml
+esphome config tests/fixtures/shelly_emulator.yaml
+pytest -q tests/
+git add -A && git commit -m "Re-apply marsrelay patch on esphome wifi 2026.X.Y"
+```
+
+> Why this works when upstream changes a lot: the three-way merge has the old
+> pristine as its base, so an upstream rewrite of the patched lines surfaces as a
+> conflict rather than applying in the wrong place. The CI check
+> (`scripts/check-wifi-fork.sh`, workflow `wifi-fork-check`) is the backstop that
+> fails the build if the vendored tree ever drifts from "upstream + patch".
 
 ## Why a full fork (instead of a small override)
 
