@@ -40,7 +40,12 @@ for f in "${FILES[@]}"; do
 done
 
 # Apply our patch onto the pristine copy. The patch only touches wifi_component.cpp.
-( cd "$tmp" && git apply "$PATCH" )
+if ! ( cd "$tmp" && git apply "$PATCH" ); then
+  echo >&2
+  echo "FAILED: $(basename "$PATCH") does not apply to pristine esphome ${VERSION}." >&2
+  echo "The patch is stale or incompatible with upstream; re-run scripts/update-wifi.sh ${VERSION}." >&2
+  exit 1
+fi
 
 fail=0
 for f in "${FILES[@]}"; do

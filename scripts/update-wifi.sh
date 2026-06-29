@@ -46,6 +46,14 @@ FILES=(
   wpa2_eap.py
 )
 
+# Require a clean components/wifi tree so the vendor-import commit below captures
+# only the freshly downloaded upstream files (git add stages all of WIFI_DIR).
+# Use status --porcelain (not diff-index) so stat-only changes don't false-abort.
+if [[ -n "$(git -C "$ROOT" status --porcelain -- "$WIFI_DIR")" ]]; then
+  echo "ERROR: $WIFI_DIR has uncommitted changes; commit or stash them first." >&2
+  exit 1
+fi
+
 echo "==> Downloading pristine esphome wifi component @ ${VERSION}"
 for f in "${FILES[@]}"; do
   curl -fsSL "${BASE}/${f}" -o "${WIFI_DIR}/${f}"
@@ -84,6 +92,15 @@ sed -i -E "s#tree/[0-9][0-9.]*/esphome/components/wifi#tree/${VERSION}/esphome/c
   "$WIFI_DIR/README.md"
 sed -i -E "s/\*\*Upstream version:\*\* \`[0-9][0-9.]*\`/**Upstream version:** \`${VERSION}\`/" \
   "$WIFI_DIR/README.md"
+
+# Fail loudly if any substitution silently no-op'd (e.g. a marker format drifted),
+# which would otherwise leave stale version pins behind.
+grep -qF "esphome_version: \"${VERSION}\"" "$ROOT/.github/workflows/ci.yml" \
+  || { echo "ERROR: esphome_version not bumped in ci.yml" >&2; exit 1; }
+grep -qF "tree/${VERSION}/esphome/components/wifi" "$WIFI_DIR/README.md" \
+  || { echo "ERROR: upstream tree URL not bumped in README.md" >&2; exit 1; }
+grep -qF "**Upstream version:** \`${VERSION}\`" "$WIFI_DIR/README.md" \
+  || { echo "ERROR: Upstream version not bumped in README.md" >&2; exit 1; }
 
 echo "==> Verifying the result equals pristine upstream + the patch"
 "$ROOT/scripts/check-wifi-fork.sh"
