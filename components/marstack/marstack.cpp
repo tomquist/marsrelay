@@ -64,6 +64,19 @@ std::string formatted_date_string() {
   return std::string(buffer);
 }
 
+// Returns the request URL as a std::string in a way that works on both the
+// ESP-IDF and Arduino web server backends. On ESP-IDF, AsyncWebServerRequest::url()
+// is deprecated (and removed in ESPHome 2026.9.0) in favor of url_to(), which
+// writes into a caller-provided buffer; on Arduino the classic url() is used.
+std::string request_url(AsyncWebServerRequest *request) {
+#if defined(USE_ESP_IDF)
+  char buffer[AsyncWebServerRequest::URL_BUF_SIZE];
+  return std::string(request->url_to(buffer));
+#else
+  return std::string(request->url().c_str());
+#endif
+}
+
 const char *method_name(http_method method) {
   switch (method) {
     case HTTP_GET:
@@ -85,12 +98,12 @@ const char *method_name(http_method method) {
 
 bool Marstack::canHandle(AsyncWebServerRequest *request) const {
   if (request->method() == HTTP_GET) {
-    const auto &url = request->url();
+    const std::string url = request_url(request);
     return url == "/prod/api/v1/setB2500Report" || url == "/app/neng/getDateInfoeu.php" ||
            url == "/app/Solar/puterrinfo.php" || url == "/ems/api/v1/getRealtimeSoc";
   }
   if (request->method() == HTTP_POST) {
-    return request->url() == "/app/Solar/puterrinfo.php";
+    return request_url(request) == "/app/Solar/puterrinfo.php";
   }
   return false;
 }
@@ -114,7 +127,7 @@ void Marstack::onBody(AsyncWebServerRequest *request, uint8_t *data, size_t len,
 }
 
 void Marstack::handleRequest(AsyncWebServerRequest *request) {
-  const auto &url = request->url();
+  const std::string url = request_url(request);
 
   std::string body;
   // For POST requests, read the body from collected buffer or "plain" parameter
@@ -188,7 +201,7 @@ void Marstack::handleRequest(AsyncWebServerRequest *request) {
   ESP_LOGD(TAG, "Triggering request: method=%s, url=%s, body_length=%zu, body_preview=%.100s", 
            method.c_str(), url.c_str(), body.length(), body.c_str());
   for (auto *trigger : this->request_triggers_) {
-    trigger->trigger(method, url.c_str(), body, source_ip);
+    trigger->trigger(method, url, body, source_ip);
   }
 
   if (request->method() == HTTP_GET && url == "/prod/api/v1/setB2500Report") {
