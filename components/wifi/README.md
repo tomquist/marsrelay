@@ -7,8 +7,8 @@ fallback that shuts down as soon as the STA associates.
 
 ## Current base
 
-- **Upstream version:** `2026.5.0`
-- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.5.0/esphome/components/wifi>
+- **Upstream version:** `2026.6.2`
+- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.6.2/esphome/components/wifi>
 
 Everything in this directory is byte-for-byte identical to that upstream
 revision except for the patches described below.
