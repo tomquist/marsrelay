@@ -5,15 +5,18 @@ config `marsrelay_esp32s3.yaml`). `CLAUDE.md` is a symlink to this file.
 
 ## Dev setup
 
-The system Python's setuptools is broken (Debian `install_layout` error), so
-**always use a venv**. Install ESPHome pinned to the same version the wifi fork
-is based on (`components/wifi/UPSTREAM_VERSION`):
+Work in a virtualenv and install ESPHome pinned to the same version the wifi
+fork is based on (`components/wifi/UPSTREAM_VERSION`):
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
 pip install -U pip setuptools wheel
 pip install "esphome==$(cat components/wifi/UPSTREAM_VERSION)" pytest
 ```
+
+The venv keeps this isolated from the system Python; on some distros installing
+into the system interpreter fails outright (e.g. a broken `setuptools`
+`install_layout`), which the venv also sidesteps.
 
 ## Validate changes
 
