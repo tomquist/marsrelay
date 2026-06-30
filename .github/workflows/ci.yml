@@ -8,5 +8,5 @@ jobs:
   ci:
     uses: ./.github/workflows/ci-dispatch.yml
     with:
-      esphome_version: "2026.6.2"
+      esphome_version: "2026.6.3"
       run_tests: true

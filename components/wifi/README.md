@@ -7,8 +7,8 @@ fallback that shuts down as soon as the STA associates.
 
 ## Current base
 
-- **Upstream version:** `2026.6.2`
-- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.6.2/esphome/components/wifi>
+- **Upstream version:** `2026.6.3`
+- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.6.3/esphome/components/wifi>
 
 The pinned version is stored in [`UPSTREAM_VERSION`](./UPSTREAM_VERSION), which
 is the single source of truth used by the tooling below.
