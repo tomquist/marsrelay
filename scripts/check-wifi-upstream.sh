@@ -20,31 +20,15 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
+. "$(dirname "${BASH_SOURCE[0]}")/lib-wifi.sh"
+
 WIFI_DIR="$ROOT/components/wifi"
 CURRENT="$(cat "${WIFI_DIR}/UPSTREAM_VERSION")"
-
-# Same upstream file set as update-wifi.sh / check-wifi-fork.sh -- keep in sync
-# with the upstream directory listing.
-FILES=(
-  __init__.py
-  automation.h
-  wifi_component.cpp
-  wifi_component.h
-  wifi_component_esp8266.cpp
-  wifi_component_esp_idf.cpp
-  wifi_component_libretiny.cpp
-  wifi_component_pico_w.cpp
-  wpa2_eap.py
-)
 
 emit() {  # publish a key=value pair to GITHUB_OUTPUT when running under Actions
   if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "$1=$2" >> "$GITHUB_OUTPUT"
   fi
-}
-
-raw_url() {  # raw_url <version> <file>
-  echo "https://raw.githubusercontent.com/esphome/esphome/$1/esphome/components/wifi/$2"
 }
 
 echo "Current pinned esphome wifi version: ${CURRENT}"
@@ -63,19 +47,22 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-changed=false
-for f in "${FILES[@]}"; do
-  curl -fsSL "$(raw_url "$CURRENT" "$f")" -o "$tmp/cur-$f"
-  curl -fsSL "$(raw_url "$LATEST" "$f")" -o "$tmp/new-$f"
-  if ! diff -q "$tmp/cur-$f" "$tmp/new-$f" >/dev/null; then
-    echo "  changed upstream: $f"
-    changed=true
-  fi
-done
+# Compare the two upstream component folders wholesale, so a file added, removed,
+# or changed between the versions all count as a change.
+wifi_download_upstream "$CURRENT" "$tmp/cur"
+wifi_download_upstream "$LATEST" "$tmp/new"
 
-if [[ "$changed" == true ]]; then
-  echo "==> The wifi component changed between ${CURRENT} and ${LATEST}."
-else
+if diff -rq "$tmp/cur" "$tmp/new" >/dev/null; then
+  changed=false
   echo "==> esphome ${LATEST} is newer but the wifi component is unchanged."
+else
+  changed=true
+  echo "==> The wifi component changed between ${CURRENT} and ${LATEST}:"
+  # Informational only; diff exits non-zero when files differ, so don't let it
+  # trip `set -e` (|| true). Rewrite the temp paths into readable file notes.
+  diff -rq "$tmp/cur" "$tmp/new" \
+    | sed -E "s#Files ${tmp}/cur/(.*) and ${tmp}/new/.* differ#  changed: \1#; \
+              s#Only in ${tmp}/cur: (.*)#  removed in ${LATEST}: \1#; \
+              s#Only in ${tmp}/new: (.*)#  added in ${LATEST}: \1#" || true
 fi
 emit changed "$changed"

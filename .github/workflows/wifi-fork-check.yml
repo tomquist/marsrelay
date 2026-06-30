@@ -17,4 +17,8 @@ jobs:
         with:
           persist-credentials: false
       - name: Verify wifi fork == upstream + patch
+        env:
+          # Authenticate the upstream directory listing so it isn't throttled by
+          # the unauthenticated GitHub API rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/check-wifi-fork.sh

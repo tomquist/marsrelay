@@ -39,6 +39,8 @@ jobs:
 
       - name: Detect upstream wifi change
         id: detect
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/check-wifi-upstream.sh
 
       - name: Look for an existing auto-update PR
@@ -56,6 +58,8 @@ jobs:
         if: steps.detect.outputs.changed == 'true' && steps.existing.outputs.count == '0'
         id: update
         continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
