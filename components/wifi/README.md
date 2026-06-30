@@ -7,8 +7,8 @@ fallback that shuts down as soon as the STA associates.
 
 ## Current base
 
-- **Upstream version:** `2026.6.2`
-- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.6.2/esphome/components/wifi>
+- **Upstream version:** `2026.6.3`
+- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.6.3/esphome/components/wifi>
 
 The pinned version is stored in [`UPSTREAM_VERSION`](./UPSTREAM_VERSION), which
 is the single source of truth used by the tooling below.
@@ -83,6 +83,28 @@ git add -A && git commit -m "Re-apply marsrelay patch on esphome wifi 2026.X.Y"
 > conflict rather than applying in the wrong place. The CI check
 > (`scripts/check-wifi-fork.sh`, workflow `wifi-fork-check`) is the backstop that
 > fails the build if the vendored tree ever drifts from "upstream + patch".
+
+## Staying up to date automatically
+
+The `wifi-update-check` workflow (`.github/workflows/wifi-update-check.yml`)
+runs daily and via manual dispatch. It uses
+[`scripts/check-wifi-upstream.sh`](../../scripts/check-wifi-upstream.sh) to
+compare the upstream `wifi` component at the latest ESPHome release against our
+pin in [`UPSTREAM_VERSION`](./UPSTREAM_VERSION), and reacts only when the
+component actually changed:
+
+- **Unchanged** (no new release, or a release that doesn't touch `wifi`) — the
+  job is a green no-op.
+- **Changed and the patch still applies** — it runs `scripts/update-wifi.sh` for
+  the new version and opens an `automated/update-wifi-<version>` PR for review.
+  If such a PR is already open it does nothing (no duplicates).
+- **Changed but the patch no longer applies** — it **fails**, signalling that a
+  manual `scripts/update-wifi.sh <version>` + conflict resolution is needed.
+
+So the only red state is "upstream changed the component in a way we can't carry
+over automatically". Set the optional `WIFI_UPDATE_TOKEN` secret (a PAT) if you
+want the generated PR's own CI to run — pushes made with the default
+`GITHUB_TOKEN` don't trigger other workflows.
 
 ## Why a full fork (instead of a small override)
 

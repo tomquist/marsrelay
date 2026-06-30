@@ -27,24 +27,14 @@ if [[ -z "$VERSION" ]]; then
 fi
 
 ROOT="$(git rev-parse --show-toplevel)"
+. "$(dirname "${BASH_SOURCE[0]}")/lib-wifi.sh"
+
 WIFI_DIR="$ROOT/components/wifi"
 PATCH="$WIFI_DIR/patches/marsrelay-ap-sta.patch"
-BASE="https://raw.githubusercontent.com/esphome/esphome/${VERSION}/esphome/components/wifi"
 
-# The upstream files that make up the component. Keep this in sync with the
-# upstream directory listing; everything else under components/wifi/ (README.md,
+# The component's file set is discovered from the upstream folder (see
+# scripts/lib-wifi.sh); everything else under components/wifi/ (README.md,
 # UPSTREAM_VERSION, patches/) is ours and is never overwritten.
-FILES=(
-  __init__.py
-  automation.h
-  wifi_component.cpp
-  wifi_component.h
-  wifi_component_esp8266.cpp
-  wifi_component_esp_idf.cpp
-  wifi_component_libretiny.cpp
-  wifi_component_pico_w.cpp
-  wpa2_eap.py
-)
 
 # Require a clean components/wifi tree so the vendor-import commit below captures
 # only the freshly downloaded upstream files (git add stages all of WIFI_DIR).
@@ -55,13 +45,16 @@ if [[ -n "$(git -C "$ROOT" status --porcelain -- "$WIFI_DIR")" ]]; then
 fi
 
 echo "==> Downloading pristine esphome wifi component @ ${VERSION}"
-for f in "${FILES[@]}"; do
-  curl -fsSL "${BASE}/${f}" -o "${WIFI_DIR}/${f}"
-done
+# Drop the previously vendored upstream files first so an upstream rename or
+# removal is reflected (our own files are left untouched), then fetch the folder.
+while IFS= read -r rel; do
+  git -C "$ROOT" rm -q -- "components/wifi/${rel}"
+done < <(wifi_vendored_files "$ROOT")
+wifi_download_upstream "$VERSION" "$WIFI_DIR"
 echo "${VERSION}" > "${WIFI_DIR}/UPSTREAM_VERSION"
 
 echo "==> Committing pristine vendor import (merge base for the next update)"
-git -C "$ROOT" add "${WIFI_DIR}"
+git -C "$ROOT" add -A -- "${WIFI_DIR}"
 git -C "$ROOT" commit -q -m "vendor: import pristine esphome wifi ${VERSION}"
 
 echo "==> Re-applying marsrelay patch with 3-way merge"
@@ -73,7 +66,7 @@ else
 !! The patch did not apply cleanly -- components/wifi/wifi_component.cpp now has
 !! conflict markers. Resolve them, then finish manually:
 
-     git diff -- components/wifi/wifi_component.cpp > $PATCH
+     git diff HEAD -- components/wifi/wifi_component.cpp > $PATCH
      # bump esphome_version in .github/workflows/ci.yml and the "Current base"
      # in components/wifi/README.md to ${VERSION}
      scripts/check-wifi-fork.sh
@@ -83,7 +76,10 @@ EOF
 fi
 
 echo "==> Regenerating patch against the new base"
-git -C "$ROOT" diff -- components/wifi/wifi_component.cpp > "$PATCH"
+# Diff against HEAD (the pristine vendor import just committed), not the index:
+# git apply --3way stages its result in modern git, which would make a plain
+# `git diff` (worktree vs index) empty and silently produce an empty patch.
+git -C "$ROOT" diff HEAD -- components/wifi/wifi_component.cpp > "$PATCH"
 
 echo "==> Bumping version markers"
 sed -i -E "s/esphome_version: \"[0-9][0-9.]*\"/esphome_version: \"${VERSION}\"/" \
