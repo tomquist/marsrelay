@@ -21,15 +21,21 @@ wifi_is_local_path() {  # wifi_is_local_path <path-relative-to-component-dir>
   esac
 }
 
+# curl with retry/timeout defaults so the unattended daily workflow can ride out
+# a transient network blip instead of surfacing it as a "manual update" failure.
+_wifi_curl() {  # _wifi_curl <curl-args...>
+  curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused --max-time 60 "$@"
+}
+
 # curl against the GitHub API, attaching a token when one is in the environment
 # so the directory listing isn't throttled by the unauthenticated rate limit.
 _wifi_api_curl() {  # _wifi_api_curl <url>
   local token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
   if [[ -n "$token" ]]; then
-    curl -fsSL -H "Authorization: Bearer ${token}" \
+    _wifi_curl -H "Authorization: Bearer ${token}" \
       -H "Accept: application/vnd.github+json" "$1"
   else
-    curl -fsSL -H "Accept: application/vnd.github+json" "$1"
+    _wifi_curl -H "Accept: application/vnd.github+json" "$1"
   fi
 }
 
@@ -61,13 +67,18 @@ for e in json.load(sys.stdin):
 }
 
 # Download the whole component at a ref into <dest> (folder-based), preserving
-# any subdirectory structure.
+# any subdirectory structure. Files whose names collide with ours (README.md,
+# UPSTREAM_VERSION, patches/) are skipped so a future upstream file can never
+# clobber the fork's own when <dest> is the live components/wifi dir; such a
+# collision still surfaces as drift in check-wifi-fork.sh (which lists the full
+# upstream set), it just isn't silently written over here.
 wifi_download_upstream() {  # wifi_download_upstream <ref> <dest>
   local ref="$1" dest="$2" rel
   local base="https://raw.githubusercontent.com/esphome/esphome/${ref}/${WIFI_UPSTREAM_PATH}"
   while IFS= read -r rel; do
+    wifi_is_local_path "$rel" && continue
     mkdir -p "$dest/$(dirname "$rel")"
-    curl -fsSL "${base}/${rel}" -o "$dest/$rel"
+    _wifi_curl "${base}/${rel}" -o "$dest/$rel"
   done < <(wifi_upstream_files "$ref")
 }
 
