@@ -73,7 +73,7 @@ else
 !! The patch did not apply cleanly -- components/wifi/wifi_component.cpp now has
 !! conflict markers. Resolve them, then finish manually:
 
-     git diff -- components/wifi/wifi_component.cpp > $PATCH
+     git diff HEAD -- components/wifi/wifi_component.cpp > $PATCH
      # bump esphome_version in .github/workflows/ci.yml and the "Current base"
      # in components/wifi/README.md to ${VERSION}
      scripts/check-wifi-fork.sh
@@ -83,7 +83,10 @@ EOF
 fi
 
 echo "==> Regenerating patch against the new base"
-git -C "$ROOT" diff -- components/wifi/wifi_component.cpp > "$PATCH"
+# Diff against HEAD (the pristine vendor import just committed), not the index:
+# git apply --3way stages its result in modern git, which would make a plain
+# `git diff` (worktree vs index) empty and silently produce an empty patch.
+git -C "$ROOT" diff HEAD -- components/wifi/wifi_component.cpp > "$PATCH"
 
 echo "==> Bumping version markers"
 sed -i -E "s/esphome_version: \"[0-9][0-9.]*\"/esphome_version: \"${VERSION}\"/" \
