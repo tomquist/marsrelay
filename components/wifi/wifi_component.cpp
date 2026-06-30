@@ -838,18 +838,18 @@ void WiFiComponent::loop() {
 
 #ifdef USE_WIFI_AP
     if (this->has_ap() && !this->ap_setup_) {
-      // marsrelay: always start the fallback AP so it runs alongside STA,
-      // instead of only starting it after ap_timeout_ since last_connected_.
-      ESP_LOGI(TAG, "Starting fallback AP");
-      this->setup_ap_config_();
+      if (this->ap_timeout_ != 0 && (now - this->last_connected_ > this->ap_timeout_)) {
+        ESP_LOGI(TAG, "Starting fallback AP");
+        this->setup_ap_config_();
 #ifdef USE_CAPTIVE_PORTAL
-      if (captive_portal::global_captive_portal != nullptr) {
-        // Reset so we force one full scan after captive portal starts
-        // (previous scans were filtered because captive portal wasn't active yet)
-        this->has_completed_scan_after_captive_portal_start_ = false;
-        captive_portal::global_captive_portal->start();
-      }
+        if (captive_portal::global_captive_portal != nullptr) {
+          // Reset so we force one full scan after captive portal starts
+          // (previous scans were filtered because captive portal wasn't active yet)
+          this->has_completed_scan_after_captive_portal_start_ = false;
+          captive_portal::global_captive_portal->start();
+        }
 #endif
+      }
     }
 #endif  // USE_WIFI_AP
 
@@ -1589,9 +1589,8 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
         captive_portal::global_captive_portal->end();
       }
 #endif
-      // marsrelay: keep the AP enabled alongside the STA connection
-      // (upstream disables it via this->wifi_mode_({}, false)).
-      ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
+      ESP_LOGD(TAG, "Disabling AP");
+      this->wifi_mode_({}, false);
     }
 #ifdef USE_IMPROV
     if (this->is_esp32_improv_active_()) {
