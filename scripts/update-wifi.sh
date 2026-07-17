@@ -67,8 +67,8 @@ else
 !! conflict markers. Resolve them, then finish manually:
 
      git diff HEAD -- components/wifi/wifi_component.cpp > $PATCH
-     # bump esphome_version in .github/workflows/ci.yml and the "Current base"
-     # in components/wifi/README.md to ${VERSION}
+     # bump the "Current base" / Upstream version in components/wifi/README.md
+     # to ${VERSION} (UPSTREAM_VERSION and the CI pin are already handled)
      scripts/check-wifi-fork.sh
      git add -A && git commit -m "Re-apply marsrelay patch on esphome wifi ${VERSION}"
 EOF
@@ -82,8 +82,10 @@ echo "==> Regenerating patch against the new base"
 git -C "$ROOT" diff HEAD -- components/wifi/wifi_component.cpp > "$PATCH"
 
 echo "==> Bumping version markers"
-sed -i -E "s/esphome_version: \"[0-9][0-9.]*\"/esphome_version: \"${VERSION}\"/" \
-  "$ROOT/.github/workflows/ci.yml"
+# The CI esphome pin is derived from components/wifi/UPSTREAM_VERSION (already
+# written above), so the workflow files are intentionally left untouched here --
+# that keeps the automated wifi-update-check commit pushable with the default
+# GITHUB_TOKEN, which can't modify .github/workflows/ without `workflows` perms.
 sed -i -E "s#tree/[0-9][0-9.]*/esphome/components/wifi#tree/${VERSION}/esphome/components/wifi#" \
   "$WIFI_DIR/README.md"
 sed -i -E "s/\*\*Upstream version:\*\* \`[0-9][0-9.]*\`/**Upstream version:** \`${VERSION}\`/" \
@@ -91,8 +93,6 @@ sed -i -E "s/\*\*Upstream version:\*\* \`[0-9][0-9.]*\`/**Upstream version:** \`
 
 # Fail loudly if any substitution silently no-op'd (e.g. a marker format drifted),
 # which would otherwise leave stale version pins behind.
-grep -qF "esphome_version: \"${VERSION}\"" "$ROOT/.github/workflows/ci.yml" \
-  || { echo "ERROR: esphome_version not bumped in ci.yml" >&2; exit 1; }
 grep -qF "tree/${VERSION}/esphome/components/wifi" "$WIFI_DIR/README.md" \
   || { echo "ERROR: upstream tree URL not bumped in README.md" >&2; exit 1; }
 grep -qF "**Upstream version:** \`${VERSION}\`" "$WIFI_DIR/README.md" \

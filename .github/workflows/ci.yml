@@ -5,8 +5,23 @@ on:
   pull_request:
 
 jobs:
+  # Read the ESPHome pin from components/wifi/UPSTREAM_VERSION rather than
+  # hardcoding it here. Keeping the version out of the workflow file lets the
+  # automated wifi-update-check bump land in an ordinary commit that the default
+  # GITHUB_TOKEN can push (App tokens can't touch .github/workflows/ without the
+  # `workflows` permission, which isn't grantable to GITHUB_TOKEN).
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      esphome_version: ${{ steps.pin.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pin
+        run: echo "version=$(cat components/wifi/UPSTREAM_VERSION)" >> "$GITHUB_OUTPUT"
+
   ci:
+    needs: version
     uses: ./.github/workflows/ci-dispatch.yml
     with:
-      esphome_version: "2026.6.3"
+      esphome_version: ${{ needs.version.outputs.esphome_version }}
       run_tests: true

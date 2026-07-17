@@ -63,9 +63,10 @@ The script:
    vendor import), git does a true three-way merge: where upstream rewrote a
    patched region you get **standard conflict markers** to resolve, not a silent
    mis-apply.
-3. Regenerates the patch against the new base, bumps `UPSTREAM_VERSION`, the CI
-   `esphome_version` pin, and the **Current base** above, then runs
-   `scripts/check-wifi-fork.sh` to prove the result is exactly upstream + patch.
+3. Regenerates the patch against the new base, bumps `UPSTREAM_VERSION` and the
+   **Current base** above, then runs `scripts/check-wifi-fork.sh` to prove the
+   result is exactly upstream + patch. CI reads its `esphome_version` from
+   `UPSTREAM_VERSION`, so no workflow file needs editing on a bump.
 
 If the merge is clean the script leaves the re-apply staged for you to review and
 commit; if it conflicts it prints the steps to finish manually. Either way, then
