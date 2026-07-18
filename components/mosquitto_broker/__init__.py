@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
@@ -23,8 +25,35 @@ CONF_EXTERNAL = "external"
 # filter the local->external bridge relies on, which can in turn enable a
 # forwarding loop. Reject up front instead.
 RESERVED_ID_SEGMENTS = frozenset(
-    {"marstek_energy", "App", "device", "ctrl"}
+    {"hame_energy", "marstek_energy", "App", "device", "ctrl"}
 )
+
+_MAC_RE = re.compile(r"^[0-9a-fA-F]{12}$")
+# The key hm2mqtt (and the Marstek firmware) use to derive the encrypted
+# topic id of a B2500 from its Bluetooth MAC.
+_TOPIC_ID_ENCRYPTION_KEY = b"!@#$%^&*()_+{}[]"
+
+
+def _encrypted_external_id(external: str) -> str:
+    """Return the encrypted topic-id variant of a Bluetooth MAC.
+
+    hm2mqtt publishes and listens under AES-128-CBC(zero IV, PKCS7, hex) of the
+    configured MAC on `marstek_energy` topics for B2500 device types. Computing
+    the same variant here lets `id_mappings` accept the plain MAC as `external`
+    while still matching hm2mqtt's topics. Returns "" when `external` is not a
+    12-hex-digit MAC.
+    """
+    if not _MAC_RE.match(external):
+        return ""
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    padder = padding.PKCS7(128).padder()
+    data = padder.update(external.encode("utf-8")) + padder.finalize()
+    encryptor = Cipher(
+        algorithms.AES(_TOPIC_ID_ENCRYPTION_KEY), modes.CBC(b"\x00" * 16)
+    ).encryptor()
+    return (encryptor.update(data) + encryptor.finalize()).hex()
 
 
 def _validate_id_segment(value):
@@ -69,6 +98,21 @@ def _validate_id_mappings(value):
             )
         seen_devices.add(device)
         seen_externals.add(external)
+        encrypted = _encrypted_external_id(external)
+        if encrypted:
+            # The translator also matches/emits the encrypted variant of a MAC
+            # external, so it must be collision-free like the ids themselves.
+            # (Being equal to this mapping's own `device` is fine — that is the
+            # firmware whose topic id already equals hm2mqtt's derived id, and
+            # the mapping degrades to a no-op.)
+            if encrypted in seen_externals or (
+                encrypted in seen_devices and encrypted != device
+            ):
+                raise cv.Invalid(
+                    f"id_mappings[{index}]: encrypted form '{encrypted}' of external id "
+                    f"'{external}' collides with an id from another mapping"
+                )
+            seen_externals.add(encrypted)
     return value
 
 
@@ -133,7 +177,13 @@ async def to_code(config):
         await automation.build_automation(trigger, [(cg.std_string, "topic"), (cg.std_string, "payload")], conf)
 
     for mapping in config.get(CONF_ID_MAPPINGS, []):
-        cg.add(var.add_id_mapping(mapping[CONF_DEVICE], mapping[CONF_EXTERNAL]))
+        cg.add(
+            var.add_id_mapping(
+                mapping[CONF_DEVICE],
+                mapping[CONF_EXTERNAL],
+                _encrypted_external_id(mapping[CONF_EXTERNAL]),
+            )
+        )
 
 
 @automation.register_action(

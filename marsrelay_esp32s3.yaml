@@ -82,18 +82,22 @@ mqtt:
   password: ${mqtt_password}
   on_connect:
     - lambda: |-
-        id(mqtt_client).subscribe("marstek_energy/+/App/+/ctrl", [=](const std::string &topic, const std::string &payload) {
-          ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
-          if (topic.find("/App/") == std::string::npos) {
-            ESP_LOGD("MQTT", "Not a control message, skipping");
-            return;
-          }
-          if (topic.find("/ctrl") == std::string::npos) {
-            ESP_LOGD("MQTT", "Not a control message, skipping");
-            return;
-          }
-          id(local_broker).publish_message(topic, payload);
-        });
+        // Batteries use the marstek_energy prefix on newer firmware and the
+        // hame_energy prefix on older firmware; forward commands for both.
+        for (const char *pattern : {"marstek_energy/+/App/+/ctrl", "hame_energy/+/App/+/ctrl"}) {
+          id(mqtt_client).subscribe(pattern, [=](const std::string &topic, const std::string &payload) {
+            ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
+            if (topic.find("/App/") == std::string::npos) {
+              ESP_LOGD("MQTT", "Not a control message, skipping");
+              return;
+            }
+            if (topic.find("/ctrl") == std::string::npos) {
+              ESP_LOGD("MQTT", "Not a control message, skipping");
+              return;
+            }
+            id(local_broker).publish_message(topic, payload);
+          });
+        }
 
 mosquitto_broker:
   id: local_broker

@@ -182,18 +182,22 @@ mqtt:
   password: ${mqtt_password}
   on_connect:
     - lambda: |-
-        id(mqtt_client).subscribe("marstek_energy/+/App/+/ctrl", [=](const std::string &topic, const std::string &payload) {
-          ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
-          if (topic.find("/App/") == std::string::npos) {
-            ESP_LOGD("MQTT", "Not a control message, skipping");
-            return;
-          }
-          if (topic.find("/ctrl") == std::string::npos) {
-            ESP_LOGD("MQTT", "Not a control message, skipping");
-            return;
-          }
-          id(local_broker).publish_message(topic, payload);
-        });
+        // Batteries use the marstek_energy prefix on newer firmware and the
+        // hame_energy prefix on older firmware; forward commands for both.
+        for (const char *pattern : {"marstek_energy/+/App/+/ctrl", "hame_energy/+/App/+/ctrl"}) {
+          id(mqtt_client).subscribe(pattern, [=](const std::string &topic, const std::string &payload) {
+            ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
+            if (topic.find("/App/") == std::string::npos) {
+              ESP_LOGD("MQTT", "Not a control message, skipping");
+              return;
+            }
+            if (topic.find("/ctrl") == std::string::npos) {
+              ESP_LOGD("MQTT", "Not a control message, skipping");
+              return;
+            }
+            id(local_broker).publish_message(topic, payload);
+          });
+        }
 
 mosquitto_broker:
   id: local_broker
@@ -296,27 +300,17 @@ Marsrelay forwards the battery's topics as-is, so the ID you found in [Step 5](#
 Two rules apply to B2500 devices:
 
 1. **hm2mqtt always gets the Bluetooth MAC as `deviceId` — never the ID from the topic.** hm2mqtt builds its B2500 topics from the configured value itself: it publishes and listens under the plain MAC on `hame_energy/...` topics and under an encrypted variant it derives from the MAC on `marstek_energy/...` topics. Configuring anything other than the MAC breaks this derivation — you can recognize that mistake in the Marsrelay log by extra-long IDs (~96 characters) in the `.../App/.../ctrl` topics. Option A below is therefore **not** available for B2500.
-2. **You will usually also need an `id_mappings` entry in Marsrelay**, because on cloud MQTT — which is what the battery speaks to Marsrelay — a B2500 identifies itself with its cloud identity, not with the plain MAC.
+2. **Add an `id_mappings` entry that maps the battery's topic ID to the Bluetooth MAC**, because on cloud MQTT — which is what the battery speaks to Marsrelay — a B2500 identifies itself with its cloud identity, not with the plain MAC:
 
-What to put into the mapping depends on the prefix of the battery's `/device/` topic from [Step 5](#step-5-find-your-device-information):
+   ```yaml
+   id_mappings:
+     - device: "<id-from-the-battery's-device-topic>"   # from Step 5
+       external: "<bluetooth-mac>"
+   ```
 
-- **Battery publishes under `hame_energy/...` (older firmware):** the ID in the topic is the battery's 24-character cloud device ID. Map it to the MAC:
+Marsrelay handles the rest automatically: it knows hm2mqtt's encrypted MAC variant for B2500 device types and rewrites each topic to whichever form hm2mqtt uses there — the plain MAC on `hame_energy/...` topics, the encrypted variant on `marstek_energy/...` topics. If the battery's topic ID happens to already equal hm2mqtt's encrypted variant, the mapping degrades to a no-op, so adding it is always safe.
 
-  ```yaml
-  id_mappings:
-    - device: "<24-char-id-from-the-device-topic>"
-      external: "<bluetooth-mac>"
-  ```
-
-  Also make sure commands are forwarded for the `hame_energy` prefix — the example config only forwards `marstek_energy` (see [Troubleshooting](#the-battery-doesnt-react-to-commands-eg-cd1), Cause 1).
-
-- **Battery publishes under `marstek_energy/...` (newer firmware):** compare the ID in the battery's `/device/` topic with the ID hm2mqtt publishes commands under on the same prefix — the `marstek_energy/<deviceType>/App/<id>/ctrl` topics you can see in MQTT Explorer or in the Marsrelay log (that ID is hm2mqtt's encrypted variant of the MAC, 32 hex characters). If the two IDs are **identical**, you're done — no mapping needed. If they **differ** (the battery uses an ID that can't be derived from the MAC alone), map the battery's ID to hm2mqtt's:
-
-  ```yaml
-  id_mappings:
-    - device: "<id-from-the-battery's-device-topic>"
-      external: "<id-from-hm2mqtt's-App-topic>"
-  ```
+> This automatic form selection requires a current Marsrelay build from `main`. On older builds, `external` had to be set to the encrypted 32-hex ID from hm2mqtt's `marstek_energy/.../App/.../ctrl` topics manually for batteries on that prefix — such configs keep working unchanged.
 
 > **B2500 configured for local MQTT:** If you configured your B2500 to talk to your local MQTT broker directly (e.g. via [hmjs](https://tomquist.github.io/hmjs/)), it doesn't use its cloud identity — it publishes under the plain MAC on `hame_energy/...` topics, which matches hm2mqtt directly. Use the MAC in hm2mqtt; no mapping is needed.
 
@@ -380,7 +374,7 @@ Two ways to find out which encrypted ID belongs to which battery:
 
 Marsrelay's log shows `Received control message: ...` but the battery never answers. The command is reaching Marsrelay, but it doesn't match the topic the battery actually listens on. There are two common causes — compare the `.../device/<deviceId>/...` topic the battery publishes on (see [Step 5](#step-5-find-your-device-information)) with the topic your commands arrive on:
 
-**Cause 1: Wrong topic prefix (`hame_energy` vs. `marstek_energy`).** Batteries use one of two cloud topic prefixes depending on their firmware generation: older firmware talks to the 2024-generation cloud broker using `hame_energy/...`, newer firmware to the 2025 generation using `marstek_energy/...`. The example configuration only forwards commands for `marstek_energy/+/App/+/ctrl`. If your battery's `/device/` topics appear under `hame_energy/...`, subscribe to that prefix as well (or instead) in the `mqtt.on_connect` lambda:
+**Cause 1: Wrong topic prefix (`hame_energy` vs. `marstek_energy`).** Batteries use one of two cloud topic prefixes depending on their firmware generation: older firmware talks to the 2024-generation cloud broker using `hame_energy/...`, newer firmware to the 2025 generation using `marstek_energy/...`. The current example configuration forwards commands for both prefixes, but configs created from an older version of the example only subscribe `marstek_energy/+/App/+/ctrl`. If your battery's `/device/` topics appear under `hame_energy/...`, make sure that prefix is subscribed as well in the `mqtt.on_connect` lambda:
 
 ```yaml
 mqtt:
@@ -399,7 +393,7 @@ The outgoing direction needs no change: the `mosquitto_broker` `on_message` forw
 **Cause 2: The device ID in the topic doesn't match what hm2mqtt publishes to.** Newer firmware switches the battery from its plain MAC address to an [encrypted ID](#device-ids-mac-address-vs-encrypted-id) in its MQTT topics (e.g. Jupiter C+ with firmware v142), so this often shows up right after a firmware update. The fix depends on the device family:
 
 - **Venus/Jupiter and other non-B2500 devices:** find the battery's encrypted ID (see [Finding the encrypted ID](#finding-the-encrypted-id)) and either configure it as the `deviceId` in hm2mqtt or add an `id_mappings` entry in Marsrelay. Your setup stays fully offline either way.
-- **B2500/Saturn devices (HMA/HMB/HMF/HMK/HMJ):** keep the **Bluetooth MAC** as the `deviceId` in hm2mqtt and add an `id_mappings` entry that connects the battery's topic ID to the ID hm2mqtt publishes under — see [Device IDs](#device-ids-mac-address-vs-encrypted-id) for exactly which value goes where. If you pasted the battery's topic ID into hm2mqtt instead, that's the problem: commands end up on a double-encrypted topic (visible as ~96-character IDs in the Marsrelay log).
+- **B2500/Saturn devices (HMA/HMB/HMF/HMK/HMJ):** keep the **Bluetooth MAC** as the `deviceId` in hm2mqtt and add an `id_mappings` entry mapping the battery's topic ID to that MAC (see [Device IDs](#device-ids-mac-address-vs-encrypted-id); requires a current Marsrelay build). If you pasted the battery's topic ID into hm2mqtt instead, that's the problem: commands end up on a double-encrypted topic (visible as ~96-character IDs in the Marsrelay log).
 
 ### No `.../device/...` topic ever appears in MQTT Explorer
 
@@ -441,7 +435,7 @@ Workaround: bring the meter reading into ESPHome as a sensor (for example import
 
 ### hm2mqtt shows all entities as unavailable (or values frozen at old state)
 
-hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the `deviceId` configured in hm2mqtt against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices the configured ID must be the Bluetooth MAC and the battery's topic ID usually needs an `id_mappings` entry on top; for all other devices the configured ID must match the topic ID exactly (or be connected via an `id_mappings` entry). See [Device IDs](#device-ids-mac-address-vs-encrypted-id).
+hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the `deviceId` configured in hm2mqtt against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices the configured ID must be the Bluetooth MAC, with an `id_mappings` entry mapping the battery's topic ID to that MAC; for all other devices the configured ID must match the topic ID exactly (or be connected via an `id_mappings` entry). See [Device IDs](#device-ids-mac-address-vs-encrypted-id).
 
 ### Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
 

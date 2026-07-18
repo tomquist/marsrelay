@@ -5,6 +5,7 @@
 #include "esp_tls.h"
 #include "mqtt_client.h"
 #include "esp_event.h"
+#include <cctype>
 #include <cstring>
 
 namespace esphome {
@@ -180,6 +181,41 @@ void MosquittoBroker::publish_message(const std::string &topic, const std::strin
   }
 }
 
+namespace {
+
+// Device families whose hm2mqtt integration derives an encrypted topic id from
+// the Bluetooth MAC on `marstek_energy` topics (mirrors hm2mqtt's list).
+bool is_b2500_type_segment(const std::string &segment) {
+  static const char *const B2500_BASE_TYPES[] = {"HMA", "HMF", "HMK", "HMJ"};
+  std::string base = segment.substr(0, segment.find('-'));
+  for (auto &c : base) {
+    c = static_cast<char>(::toupper(static_cast<unsigned char>(c)));
+  }
+  for (const char *base_type : B2500_BASE_TYPES) {
+    if (base == base_type) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// True when the external side of this topic uses the encrypted MAC variant:
+// hm2mqtt only does that on `marstek_energy/<b2500-type>/...` topics.
+bool topic_uses_encrypted_external(const std::string &topic) {
+  size_t first = topic.find('/');
+  if (first == std::string::npos) {
+    return false;
+  }
+  if (topic.compare(0, first, "marstek_energy") != 0) {
+    return false;
+  }
+  size_t second = topic.find('/', first + 1);
+  size_t type_end = (second == std::string::npos) ? topic.size() : second;
+  return is_b2500_type_segment(topic.substr(first + 1, type_end - first - 1));
+}
+
+}  // namespace
+
 std::string MosquittoBroker::translate_external_to_device_(const std::string &topic) const {
   if (this->id_mappings_.empty()) {
     return topic;
@@ -192,9 +228,16 @@ std::string MosquittoBroker::translate_external_to_device_(const std::string &to
     size_t end = (next == std::string::npos) ? topic.size() : next;
     bool replaced = false;
     for (const auto &mapping : this->id_mappings_) {
-      const std::string &external = mapping.second;
-      if (end - pos == external.size() && topic.compare(pos, external.size(), external) == 0) {
-        result.append(mapping.first);
+      // Accept both external forms regardless of prefix, so already-translated
+      // or manually configured encrypted ids keep working.
+      const bool matches_plain = end - pos == mapping.external.size() &&
+                                 topic.compare(pos, mapping.external.size(), mapping.external) == 0;
+      const bool matches_encrypted = !mapping.external_encrypted.empty() &&
+                                     end - pos == mapping.external_encrypted.size() &&
+                                     topic.compare(pos, mapping.external_encrypted.size(),
+                                                   mapping.external_encrypted) == 0;
+      if (matches_plain || matches_encrypted) {
+        result.append(mapping.device);
         replaced = true;
         break;
       }
@@ -215,6 +258,7 @@ std::string MosquittoBroker::translate_device_to_external_(const std::string &to
   if (this->id_mappings_.empty()) {
     return topic;
   }
+  const bool use_encrypted = topic_uses_encrypted_external(topic);
   std::string result;
   result.reserve(topic.size());
   size_t pos = 0;
@@ -223,9 +267,13 @@ std::string MosquittoBroker::translate_device_to_external_(const std::string &to
     size_t end = (next == std::string::npos) ? topic.size() : next;
     bool replaced = false;
     for (const auto &mapping : this->id_mappings_) {
-      const std::string &device = mapping.first;
+      const std::string &device = mapping.device;
       if (end - pos == device.size() && topic.compare(pos, device.size(), device) == 0) {
-        result.append(mapping.second);
+        if (use_encrypted && !mapping.external_encrypted.empty()) {
+          result.append(mapping.external_encrypted);
+        } else {
+          result.append(mapping.external);
+        }
         replaced = true;
         break;
       }
