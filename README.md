@@ -16,19 +16,63 @@ Marsrelay replaces the Marstek cloud service with a small device that runs local
 
 ## How It Works
 
-When you set up Marsrelay:
+Marstek batteries talk to two cloud services: an HTTP API (date/time sync and similar requests) and an MQTT broker (telemetry and control). Marsrelay emulates both on a single ESP32-S3, so the battery behaves exactly as if it were online:
 
-1. **Creates a WiFi Network**: Marsrelay opens its own WiFi access point that your Marstek Energy Storage device connects to (just like connecting to WiFi)
-2. **Redirects Internet Requests**: When your Marstek device tries to reach the internet, Marsrelay intercepts those requests and redirects them to itself instead
-3. **Acts Like Marstek's Server**: Marsrelay includes a web server that responds to your Marstek device the same way Marstek's cloud service would, so your device thinks it's connected normally
-4. **Forwards Messages**: Marsrelay includes an MQTT broker (a messaging system) that:
-   - Receives messages from your Marstek device
-   - Forwards them to your home automation system's MQTT broker
-   - This allows projects like hm2mqtt to monitor and control your Marstek system
+1. **Creates a WiFi Network** (`wifi` component): Marsrelay opens its own WiFi access point that your Marstek device connects to, while at the same time staying connected to your home WiFi as a regular client
+2. **Redirects Internet Requests** (`capture_dns` component): When the battery looks up any Marstek cloud hostname via DNS, Marsrelay answers with its own IP address, so all cloud traffic ends up at the ESP32
+3. **Acts Like Marstek's HTTP Server** (`marstack` component): A web server responds to the Marstek cloud HTTP endpoints the battery calls (for example `GET /app/neng/getDateInfoeu.php`, which the battery uses to sync its clock), so the battery believes it is talking to the real cloud
+4. **Acts Like Marstek's MQTT Broker** (`mosquitto_broker` component): An embedded TLS MQTT broker (port 8883) accepts the battery's cloud MQTT connection and bridges it to your home network:
+   - Messages the battery publishes on `marstek_energy/<deviceType>/device/<deviceId>/...` are forwarded to your home MQTT broker
+   - Control messages published on your home broker under `marstek_energy/<deviceType>/App/<deviceId>/ctrl` (for example by [hm2mqtt](https://github.com/tomquist/hm2mqtt)) are delivered back to the battery
+5. **Bridges Power Meter Traffic** (`udp_proxy` component): UDP broadcasts used for power meter discovery and zero feed-in control are relayed between the battery's network and your home network
+
+```mermaid
+flowchart LR
+    subgraph AP["Marsrelay WiFi AP"]
+        Battery[Marstek battery]
+    end
+    subgraph ESP["Marsrelay (ESP32-S3)"]
+        DNS[capture_dns<br/>DNS redirection]
+        HTTP[marstack<br/>cloud HTTP emulation]
+        Broker[mosquitto_broker<br/>cloud MQTT emulation]
+        UDP[udp_proxy]
+    end
+    subgraph Home["Home network"]
+        HomeBroker[Your MQTT broker]
+        HM2MQTT[hm2mqtt]
+        HA[Home Assistant]
+        Meter[Smart meter / b2500-meter]
+    end
+    Battery -->|DNS lookups| DNS
+    Battery -->|HTTP| HTTP
+    Battery <-->|MQTT over TLS| Broker
+    Battery <-.->|UDP broadcasts| UDP
+    UDP <-.-> Meter
+    Broker <-->|forwards both directions| HomeBroker
+    HomeBroker <--> HM2MQTT
+    HM2MQTT <--> HA
+```
 
 ## The Result
 
 Your Marstek Energy Storage system operates completely offline, thinking it's connected to Marstek's cloud, while all its data and controls are available to your home automation system through MQTT.
+
+Note that the official Marstek app can no longer reach the battery through the cloud in this setup — that's the point of going offline. You can still use the app via Bluetooth when you are near the battery.
+
+## Marsrelay, hm2mqtt and Hame Relay
+
+Three related projects are often mentioned together. They solve different problems:
+
+| Project | Role |
+|---------|------|
+| **Marsrelay** (this project) | Replaces the Marstek **cloud** locally. Batteries connect to it over WiFi; it forwards their raw MQTT messages to your home broker. Runs on an ESP32-S3. |
+| **[hm2mqtt](https://github.com/tomquist/hm2mqtt)** | Parses the raw battery MQTT messages and integrates them with Home Assistant (auto-discovery, sensors, controls). Runs as a Home Assistant add-on or Docker container. |
+| **[Hame Relay](https://github.com/tomquist/hame-relay)** | Bridges MQTT between the **real** Marstek cloud and your local broker, for setups where the battery stays cloud-connected. |
+
+In a Marsrelay setup:
+
+- **You still need hm2mqtt.** Marsrelay only moves raw MQTT messages; it doesn't parse them or create Home Assistant entities. hm2mqtt works the same whether the data arrives via Marsrelay or via Hame Relay.
+- **You don't need Hame Relay.** With Marsrelay the battery never talks to the real cloud, so there is nothing to bridge. The one exception: temporarily installing Hame Relay is a convenient way to look up a battery's encrypted device ID (see [Device IDs](#device-ids-mac-address-vs-encrypted-id) below) — you can uninstall it again afterwards.
 
 ---
 
@@ -220,45 +264,170 @@ Edit the `substitutions` section at the top of the configuration file:
 ### Step 5: Find Your Device Information
 
 1. Open MQTT Explorer (or another MQTT client) and connect to your MQTT broker
-2. Wait up to 20 minutes for a message to appear on the topic: `marstek_energy/<deviceType>/device/<deviceId>/ctrl`
+2. Wait for a message to appear on the topic: `marstek_energy/<deviceType>/device/<deviceId>/ctrl`. The battery publishes on its own schedule — **this can take up to 20 minutes**, so keep MQTT Explorer connected and be patient
 3. Note down the **`deviceType`** and **`deviceId`** from the topic
+
+> **Only topics containing `/device/` come from your battery.** You will likely also see topics like `marstek_energy/<deviceType>/App/<id>/ctrl` — these are control messages *sent by* hm2mqtt (or the app), not by your battery. They tell you nothing about your battery's device ID, so ignore them in this step.
+
+Depending on the battery's firmware version, the `deviceId` in the topic is either the battery's Bluetooth MAC address (12 hex characters, e.g. `009b08a571ee`) or a much longer encrypted ID. Both are normal — see [Device IDs](#device-ids-mac-address-vs-encrypted-id) for what this means for your hm2mqtt configuration.
+
+If no `/device/` topic ever shows up, see [Troubleshooting](#troubleshooting).
 
 ### Step 6: Configure hm2mqtt
 
 Copy the `deviceType` and `deviceId` you found into your [hm2mqtt](https://github.com/tomquist/hm2mqtt) configuration file. Your Marstek Energy Storage system is now integrated with your home automation!
 
+> If the `deviceId` from Step 5 is a long encrypted ID rather than a MAC address, you can either use it directly in hm2mqtt or keep using the Bluetooth MAC and let Marsrelay translate — see [Device IDs](#device-ids-mac-address-vs-encrypted-id).
+
 ---
 
-## Optional: Battery ID Mapping (Issue #19)
+## Device IDs: MAC Address vs. Encrypted ID
 
-Marstek batteries use a long ID in their cloud MQTT topics, while
-[hm2mqtt](https://github.com/tomquist/hm2mqtt) and
-[Hame Relay](https://github.com/tomquist/hame-relay) expect the battery's
-Bluetooth MAC address as the device ID. To bridge the two, marsrelay can
-rewrite the ID segment of every topic it forwards.
+Every Marstek battery has a Bluetooth MAC address (12 hex characters, e.g.
+`009b08a571ee`). This is what [hm2mqtt](https://github.com/tomquist/hm2mqtt)
+normally uses as the `deviceId`, and it's shown in the Marstek app and
+Bluetooth tools.
 
-Add an `id_mappings` list to the `mosquitto_broker:` block:
+However, on newer firmware the battery does **not** use its MAC in the cloud
+MQTT topics. Instead it uses a long **encrypted ID** derived from the MAC —
+for example `defa85f58f79ab2d2b2818f0a8cd3ee3` or an even longer string.
+Which form your battery uses depends on the model and firmware version (for
+example HMJ-2 switched with firmware v108, Jupiter/JPLS with v136 — Jupiter C+
+users first noticed this on firmware v142; see the
+[Hame Relay device matrix](https://github.com/tomquist/hame-relay/blob/main/docs/device-matrix.md)
+for details). A firmware update can silently switch a battery from MAC to
+encrypted ID — if your battery suddenly stops reacting to commands after an
+update, this is almost certainly why (see [Troubleshooting](#troubleshooting)).
+
+Marsrelay forwards the battery's topics as-is, so the ID you found in
+[Step 5](#step-5-find-your-device-information) is whatever the battery uses.
+If that ID is the plain MAC address, you're done — configure it in hm2mqtt and
+skip the rest of this section. If it's an encrypted ID, pick one of the two
+options below.
+
+> **Batteries configured for local MQTT:** If you configured a B2500 battery
+> to talk to your local MQTT broker directly (e.g. via
+> [hmjs](https://tomquist.github.io/hmjs/)), it publishes under its plain MAC
+> regardless of firmware version. No encrypted ID handling is needed for such
+> a battery — leave everything as is.
+
+### Option A: Use the encrypted ID directly in hm2mqtt
+
+The simplest approach: configure the encrypted ID from Step 5 as the
+`deviceId` in hm2mqtt, e.g.
+
+```yaml
+devices:
+  - deviceType: "JPLS-8H"
+    deviceId: "defa85f58f79ab2d2b2818f0a8cd3ee3"
+```
+
+or, for a Docker setup, `DEVICE_0=JPLS-8H:defa85f58f79ab2d2b2818f0a8cd3ee3`.
+
+### Option B: Let Marsrelay translate between encrypted ID and MAC
+
+Alternatively, keep the familiar Bluetooth MAC in your hm2mqtt configuration
+and have Marsrelay rewrite the ID segment of every topic it forwards. Add an
+`id_mappings` list to the `mosquitto_broker:` block:
 
 ```yaml
 mosquitto_broker:
   id: local_broker
   # ...existing options...
   id_mappings:
-    - device: "<long-id-from-cloud-mqtt-topic>"
+    - device: "<encrypted-id-from-the-device-topic>"
       external: "<bluetooth-mac-address>"
 ```
 
-For each pair, `device` is the long ID that appears in the topic on the local
-mosquitto broker (the one the battery uses for its cloud MQTT topics), and
-`external` is the Bluetooth MAC address that hm2mqtt / Hame Relay use as the
-device ID. Translation is applied in both directions automatically: control
-messages from hm2mqtt on `.../App/<external>/...` are rewritten to
+For each pair, `device` is the encrypted ID that appears in the topic on the
+local mosquitto broker (the one the battery uses for its cloud MQTT topics),
+and `external` is the Bluetooth MAC address that hm2mqtt uses as the device
+ID. Translation is applied in both directions automatically: control messages
+from hm2mqtt on `.../App/<external>/...` are rewritten to
 `.../App/<device>/...` before being delivered to the battery, and status
 messages from the battery on `.../device/<device>/...` are rewritten to
 `.../device/<external>/...` before being forwarded out.
 
-Use the `external` ID (the Bluetooth MAC) in your hm2mqtt / Hame Relay
-configuration.
+With this option, use the `external` ID (the Bluetooth MAC) in your hm2mqtt
+configuration. When you have multiple batteries, make sure each mapping pairs
+the encrypted ID and the MAC of the **same physical battery** (see
+[Finding the encrypted ID](#finding-the-encrypted-id) — power off all but one
+battery if you're unsure which ID belongs to which).
+
+### Finding the encrypted ID
+
+Two ways to find out which encrypted ID belongs to which battery:
+
+1. **MQTT Explorer** (no extra software): follow
+   [Step 5](#step-5-find-your-device-information) and wait for the battery to
+   publish on `marstek_energy/<deviceType>/device/<deviceId>/ctrl`. With
+   multiple batteries, power all but one off so you can attribute the ID
+   unambiguously. Remember: ignore `.../App/...` topics — only `/device/`
+   topics come from the battery.
+2. **Hame Relay startup logs**: temporarily install
+   [Hame Relay](https://github.com/tomquist/hame-relay) with your Marstek
+   account credentials. On startup it prints a block per device including the
+   Bluetooth MAC and the derived encrypted ID (the `Remote ID:` line). Since
+   it computes the ID from your account data, this also works before the
+   battery has ever connected to Marsrelay. You can uninstall Hame Relay again
+   afterwards — Marsrelay setups don't need it running.
+
+---
+
+## Troubleshooting
+
+### The battery stopped reacting to commands (e.g. `cd=1`) after a firmware update
+
+Newer firmware switches the battery from using its plain MAC address to an
+[encrypted ID](#device-ids-mac-address-vs-encrypted-id) in its MQTT topics
+(e.g. Jupiter C+ with firmware v142). Marsrelay still forwards everything, but
+hm2mqtt keeps publishing commands to the old MAC-based topic that the battery
+no longer listens on.
+
+**Fix:** find the battery's new encrypted ID (see
+[Finding the encrypted ID](#finding-the-encrypted-id)) and either configure it
+as the `deviceId` in hm2mqtt or add an `id_mappings` entry in Marsrelay. Your
+setup stays fully offline either way.
+
+### No `.../device/...` topic ever appears in MQTT Explorer
+
+Work through this checklist:
+
+1. **Are you looking at the right topics?** Topics under
+   `marstek_energy/<deviceType>/App/...` are commands *from* hm2mqtt, not data
+   from your battery. Only `.../device/...` topics come from the battery.
+2. **Wait long enough.** The battery can take up to 20 minutes to publish.
+   Keep MQTT Explorer connected the whole time.
+3. **Is the battery really connected to the Marsrelay access point?** The
+   Marstek app sometimes reports a successful WiFi change even though the
+   battery didn't actually connect. Check the Marsrelay logs (web interface or
+   USB): when the battery is connected, you'll see its HTTP requests, e.g.
+   `HTTP GET /app/neng/getDateInfoeu.php`. If those requests appear but no
+   MQTT `/device/` topic does, the battery is connected and the problem is on
+   the MQTT side (see next points).
+4. **Can Marsrelay reach your home MQTT broker?** Verify `mqtt_broker`,
+   `mqtt_username` and `mqtt_password` in the substitutions, and check the
+   ESPHome logs for MQTT connection errors.
+5. **Is the ESP32 stable?** Watch the logs via USB for a crash loop, and make
+   sure the `psram` settings match your board.
+
+### hm2mqtt shows all entities as unavailable (or values frozen at old state)
+
+hm2mqtt is waiting for data under a `deviceId` that doesn't match what the
+battery publishes. Compare the ID in the `.../device/<deviceId>/...` topic with
+the `deviceId` configured in hm2mqtt — they must match exactly (or be
+connected via an `id_mappings` entry). See
+[Device IDs](#device-ids-mac-address-vs-encrypted-id).
+
+### Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
+
+Not with this codebase — it's an ESPHome project. But the concept ports:
+you'd need a WiFi hotspot, a DNS server that resolves every query to the Pi
+itself, an HTTP server implementing the Marstek cloud endpoints (see
+`components/marstack/` for the protocol), and a TLS-enabled MQTT broker on
+port 8883 that bridges to your main broker (see `components/mosquitto_broker/`
+for the topic handling). The [How It Works](#how-it-works) section describes
+how the pieces fit together.
 
 ---
 
