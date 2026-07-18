@@ -279,7 +279,7 @@ If nothing has appeared after 20 minutes, you don't have to keep waiting: you ca
 
 Copy the `deviceType` and `deviceId` you found into your [hm2mqtt](https://github.com/tomquist/hm2mqtt) configuration file. Your Marstek Energy Storage system is now integrated with your home automation!
 
-> If the `deviceId` from Step 5 is a long encrypted ID rather than a MAC address, what to put into hm2mqtt depends on your device family — B2500/Saturn devices always get the Bluetooth MAC, other devices get the encrypted ID (or an ID mapping). Read [Device IDs](#device-ids-mac-address-vs-encrypted-id) before continuing.
+> If the `deviceId` from Step 5 is a long encrypted ID rather than a MAC address, what to put into hm2mqtt depends on your device family — B2500/Saturn devices always get the Bluetooth MAC (usually combined with an `id_mappings` entry in Marsrelay), other devices get the encrypted ID directly (or the MAC plus a mapping). Read [Device IDs](#device-ids-mac-address-vs-encrypted-id) before continuing.
 
 ---
 
@@ -293,11 +293,32 @@ Marsrelay forwards the battery's topics as-is, so the ID you found in [Step 5](#
 
 ### B2500 / Saturn (device types starting with HMA, HMB, HMF, HMK, HMJ)
 
-Configure the **Bluetooth MAC** as the `deviceId` in hm2mqtt — even though the topics show an encrypted ID. hm2mqtt knows the B2500 encryption scheme and derives the encrypted topic ID from the MAC by itself, so its topics match the battery automatically. No `id_mappings` in Marsrelay are needed.
+Two rules apply to B2500 devices:
 
-Do **not** paste the encrypted ID from the `/device/` topic into hm2mqtt: hm2mqtt would encrypt it a *second* time and publish commands to a nonsense topic that the battery never sees. You can recognize this mistake in the Marsrelay log by extra-long IDs (~96 characters instead of 32) in the `.../App/.../ctrl` topics.
+1. **hm2mqtt always gets the Bluetooth MAC as `deviceId` — never the ID from the topic.** hm2mqtt builds its B2500 topics from the configured value itself: it publishes and listens under the plain MAC on `hame_energy/...` topics and under an encrypted variant it derives from the MAC on `marstek_energy/...` topics. Configuring anything other than the MAC breaks this derivation — you can recognize that mistake in the Marsrelay log by extra-long IDs (~96 characters) in the `.../App/.../ctrl` topics. Option A below is therefore **not** available for B2500.
+2. **You will usually also need an `id_mappings` entry in Marsrelay**, because on cloud MQTT — which is what the battery speaks to Marsrelay — a B2500 identifies itself with its cloud identity, not with the plain MAC.
 
-> **B2500 configured for local MQTT:** If you configured your B2500 to talk to your local MQTT broker directly (e.g. via [hmjs](https://tomquist.github.io/hmjs/)), it publishes under its plain MAC regardless of firmware version. Same conclusion: use the MAC in hm2mqtt, and no ID handling is needed.
+What to put into the mapping depends on the prefix of the battery's `/device/` topic from [Step 5](#step-5-find-your-device-information):
+
+- **Battery publishes under `hame_energy/...` (older firmware):** the ID in the topic is the battery's 24-character cloud device ID. Map it to the MAC:
+
+  ```yaml
+  id_mappings:
+    - device: "<24-char-id-from-the-device-topic>"
+      external: "<bluetooth-mac>"
+  ```
+
+  Also make sure commands are forwarded for the `hame_energy` prefix — the example config only forwards `marstek_energy` (see [Troubleshooting](#the-battery-doesnt-react-to-commands-eg-cd1), Cause 1).
+
+- **Battery publishes under `marstek_energy/...` (newer firmware):** compare the ID in the battery's `/device/` topic with the ID hm2mqtt publishes commands under on the same prefix — the `marstek_energy/<deviceType>/App/<id>/ctrl` topics you can see in MQTT Explorer or in the Marsrelay log (that ID is hm2mqtt's encrypted variant of the MAC, 32 hex characters). If the two IDs are **identical**, you're done — no mapping needed. If they **differ** (the battery uses an ID that can't be derived from the MAC alone), map the battery's ID to hm2mqtt's:
+
+  ```yaml
+  id_mappings:
+    - device: "<id-from-the-battery's-device-topic>"
+      external: "<id-from-hm2mqtt's-App-topic>"
+  ```
+
+> **B2500 configured for local MQTT:** If you configured your B2500 to talk to your local MQTT broker directly (e.g. via [hmjs](https://tomquist.github.io/hmjs/)), it doesn't use its cloud identity — it publishes under the plain MAC on `hame_energy/...` topics, which matches hm2mqtt directly. Use the MAC in hm2mqtt; no mapping is needed.
 
 ### Venus, Jupiter and all other device types (VNS…, JPLS…, HMG…, HMM…, …)
 
@@ -333,8 +354,6 @@ For each pair, `device` is the encrypted ID that appears in the topic on the loc
 With this option, use the `external` ID (the Bluetooth MAC) in your hm2mqtt configuration. When you have multiple batteries, make sure each mapping pairs the encrypted ID and the MAC of the **same physical battery** (see [Finding the encrypted ID](#finding-the-encrypted-id) — power off all but one battery if you're unsure which ID belongs to which).
 
 ### Finding the encrypted ID
-
-(You only need this for Venus/Jupiter and the other non-B2500 device types — for B2500/Saturn devices the Bluetooth MAC is all you need, see above.)
 
 Two ways to find out which encrypted ID belongs to which battery:
 
@@ -380,7 +399,7 @@ The outgoing direction needs no change: the `mosquitto_broker` `on_message` forw
 **Cause 2: The device ID in the topic doesn't match what hm2mqtt publishes to.** Newer firmware switches the battery from its plain MAC address to an [encrypted ID](#device-ids-mac-address-vs-encrypted-id) in its MQTT topics (e.g. Jupiter C+ with firmware v142), so this often shows up right after a firmware update. The fix depends on the device family:
 
 - **Venus/Jupiter and other non-B2500 devices:** find the battery's encrypted ID (see [Finding the encrypted ID](#finding-the-encrypted-id)) and either configure it as the `deviceId` in hm2mqtt or add an `id_mappings` entry in Marsrelay. Your setup stays fully offline either way.
-- **B2500/Saturn devices (HMA/HMB/HMF/HMK/HMJ):** configure the **Bluetooth MAC** as the `deviceId` — hm2mqtt derives the encrypted ID itself. If you pasted the encrypted ID from the topic into hm2mqtt, that's the problem: commands end up on a double-encrypted topic (visible as ~96-character IDs in the Marsrelay log). See [Device IDs](#device-ids-mac-address-vs-encrypted-id).
+- **B2500/Saturn devices (HMA/HMB/HMF/HMK/HMJ):** keep the **Bluetooth MAC** as the `deviceId` in hm2mqtt and add an `id_mappings` entry that connects the battery's topic ID to the ID hm2mqtt publishes under — see [Device IDs](#device-ids-mac-address-vs-encrypted-id) for exactly which value goes where. If you pasted the battery's topic ID into hm2mqtt instead, that's the problem: commands end up on a double-encrypted topic (visible as ~96-character IDs in the Marsrelay log).
 
 ### No `.../device/...` topic ever appears in MQTT Explorer
 
@@ -422,7 +441,7 @@ Workaround: bring the meter reading into ESPHome as a sensor (for example import
 
 ### hm2mqtt shows all entities as unavailable (or values frozen at old state)
 
-hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the `deviceId` configured in hm2mqtt against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices the configured ID must be the Bluetooth MAC (hm2mqtt derives the encrypted topic ID from it), for all other devices it must match the topic ID exactly (or be connected via an `id_mappings` entry). See [Device IDs](#device-ids-mac-address-vs-encrypted-id).
+hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the `deviceId` configured in hm2mqtt against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices the configured ID must be the Bluetooth MAC and the battery's topic ID usually needs an `id_mappings` entry on top; for all other devices the configured ID must match the topic ID exactly (or be connected via an `id_mappings` entry). See [Device IDs](#device-ids-mac-address-vs-encrypted-id).
 
 ### Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
 
