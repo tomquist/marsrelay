@@ -41,7 +41,7 @@ flowchart LR
         HomeBroker[Your MQTT broker]
         HM2MQTT[hm2mqtt]
         HA[Home Assistant]
-        Meter[Smart meter / b2500-meter]
+        Meter[Smart meter / AstraMeter]
     end
     Battery -->|DNS lookups| DNS
     Battery -->|HTTP| HTTP
@@ -110,7 +110,7 @@ substitutions:
   mqtt_topic_prefix: "marsrelay"
   # Timezone used to sync the battery clock (see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
   timezone: "Europe/Berlin"
-  # UDP proxy port for power meter discovery (see https://github.com/tomquist/b2500-meter)
+  # UDP proxy port for power meter discovery (see https://github.com/tomquist/AstraMeter)
   # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
   # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
   # - Port 2222: Shelly 3EM gen3
@@ -434,7 +434,7 @@ how the pieces fit together.
 ## Optional: Shelly UDP Emulator (Issue #6)
 
 Marsrelay can emulate a Shelly Gen2 energy meter (UDP JSON-RPC) using ESPHome sensor values.
-This is based on the Shelly emulation implemented in <https://github.com/tomquist/b2500-meter>.
+This is based on the Shelly emulation implemented in <https://github.com/tomquist/AstraMeter> (formerly b2500-meter).
 
 Example:
 
