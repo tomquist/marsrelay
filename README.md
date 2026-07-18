@@ -75,15 +75,17 @@ In MQTT Explorer (connected to your home broker), wait for a message on `marstek
 
 ### 4. Configure hm2mqtt
 
-Enter `deviceType` and `deviceId` in [hm2mqtt](https://github.com/tomquist/hm2mqtt) — done.
+On current firmware the `deviceId` from step 3 is almost always a long **encrypted ID**, not the battery's MAC address. What goes into [hm2mqtt](https://github.com/tomquist/hm2mqtt) depends on the device family:
 
-> **Exception:** if the `deviceId` from step 3 is a long encrypted ID instead of a 12-digit MAC address, read [Device IDs](#device-ids-mac-address-vs-encrypted-id) first. In particular, **B2500/Saturn devices (HMA/HMB/HMF/HMK/HMJ types) must never get the encrypted ID as hm2mqtt `deviceId`** — they get the Bluetooth MAC plus an `id_mappings` entry in Marsrelay.
+- **B2500/Saturn (HMA/HMB/HMF/HMK/HMJ types):** use the **Bluetooth MAC** as `deviceId` — never the encrypted ID — and add an `id_mappings` entry in Marsrelay. See [Device IDs](#device-ids-mac-address-vs-encrypted-id).
+- **Venus, Jupiter and everything else:** use the ID from step 3 as `deviceId`, exactly as it appears in the topic.
+- If the topic shows a plain 12-digit MAC (older firmware, or a B2500 configured for local MQTT): just use that — done.
 
 ## Device IDs: MAC Address vs. Encrypted ID
 
-Every Marstek battery has a Bluetooth MAC address (12 hex characters, e.g. `009b08a571ee`), shown in the Marstek app and used by [hm2mqtt](https://github.com/tomquist/hm2mqtt) as the `deviceId`. On newer firmware, however, the battery identifies itself in its cloud MQTT topics with a long **encrypted ID** instead — and a firmware update can silently switch a battery from one to the other (see the [Hame Relay device matrix](https://github.com/tomquist/hame-relay/blob/main/docs/device-matrix.md) for which versions).
+Every Marstek battery has a Bluetooth MAC address (12 hex characters, e.g. `009b08a571ee`), shown in the Marstek app and used by [hm2mqtt](https://github.com/tomquist/hm2mqtt) as the `deviceId`. In its cloud MQTT topics, however, a battery on current firmware identifies itself with a long **encrypted ID** instead — only old firmware still uses the plain MAC there, and a firmware update silently switches a battery over (see the [Hame Relay device matrix](https://github.com/tomquist/hame-relay/blob/main/docs/device-matrix.md) for which versions).
 
-Marsrelay forwards topics as-is, so the ID from step 3 is whatever the battery uses. If it's the plain MAC: configure it in hm2mqtt and you're done. If it's an encrypted ID, follow the section for your device family:
+Marsrelay forwards topics as-is, so the ID from step 3 is whatever the battery uses. In the rare case that it's the plain MAC: configure it in hm2mqtt and you're done. Otherwise, follow the section for your device family:
 
 ### B2500 / Saturn (device types starting with HMA, HMB, HMF, HMK, HMJ)
 
