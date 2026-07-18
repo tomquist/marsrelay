@@ -11,7 +11,7 @@ substitutions:
   mqtt_topic_prefix: "marsrelay"
   # Timezone used to sync the battery clock (see https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
   timezone: "Europe/Berlin"
-  # UDP proxy port for power meter discovery (see https://github.com/tomquist/b2500-meter)
+  # UDP proxy port for power meter discovery (see https://github.com/tomquist/AstraMeter)
   # - Port 1010: Shelly Pro 3EM for B2500 firmware up to v224, Jupiter, Venus
   # - Port 2220: Shelly Pro 3EM for B2500 firmware v226+
   # - Port 2222: Shelly 3EM gen3
@@ -82,18 +82,22 @@ mqtt:
   password: ${mqtt_password}
   on_connect:
     - lambda: |-
-        id(mqtt_client).subscribe("marstek_energy/+/App/+/ctrl", [=](const std::string &topic, const std::string &payload) {
-          ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
-          if (topic.find("/App/") == std::string::npos) {
-            ESP_LOGD("MQTT", "Not a control message, skipping");
-            return;
-          }
-          if (topic.find("/ctrl") == std::string::npos) {
-            ESP_LOGD("MQTT", "Not a control message, skipping");
-            return;
-          }
-          id(local_broker).publish_message(topic, payload);
-        });
+        // Batteries use the marstek_energy prefix on newer firmware and the
+        // hame_energy prefix on older firmware; forward commands for both.
+        for (const char *pattern : {"marstek_energy/+/App/+/ctrl", "hame_energy/+/App/+/ctrl"}) {
+          id(mqtt_client).subscribe(pattern, [=](const std::string &topic, const std::string &payload) {
+            ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
+            if (topic.find("/App/") == std::string::npos) {
+              ESP_LOGD("MQTT", "Not a control message, skipping");
+              return;
+            }
+            if (topic.find("/ctrl") == std::string::npos) {
+              ESP_LOGD("MQTT", "Not a control message, skipping");
+              return;
+            }
+            id(local_broker).publish_message(topic, payload);
+          });
+        }
 
 mosquitto_broker:
   id: local_broker

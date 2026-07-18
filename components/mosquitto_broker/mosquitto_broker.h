@@ -31,6 +31,16 @@ class MosquittoMessageTrigger : public Trigger<std::string, std::string> {
 
 class MosquittoBroker : public Component {
  public:
+  struct IdMapping {
+    std::string device;
+    std::string external;
+    // hm2mqtt publishes/listens under an AES-derived variant of the Bluetooth
+    // MAC on `marstek_energy` topics for B2500 device types. This is that
+    // variant of `external`, precomputed at codegen time; empty when
+    // `external` is not a MAC address.
+    std::string external_encrypted;
+  };
+
   void setup() override;
   void loop() override;
   void dump_config() override;
@@ -44,8 +54,9 @@ class MosquittoBroker : public Component {
   void publish_message(const std::string &topic, const std::string &payload);
   void add_message_trigger(MosquittoMessageTrigger *trigger) { this->message_triggers_.push_back(trigger); }
   void set_publish_state(mqtt::MQTTClientState state) { this->publish_state_ = state; }
-  void add_id_mapping(const std::string &device, const std::string &external) {
-    this->id_mappings_.emplace_back(device, external);
+  void add_id_mapping(const std::string &device, const std::string &external,
+                      const std::string &external_encrypted = "") {
+    this->id_mappings_.push_back(IdMapping{device, external, external_encrypted});
   }
 
  protected:
@@ -70,7 +81,7 @@ class MosquittoBroker : public Component {
   uint32_t connect_begin_{0};
   esp_mqtt_client_handle_t esp_mqtt_client_{nullptr};
   std::vector<MosquittoMessageTrigger *> message_triggers_;
-  std::vector<std::pair<std::string, std::string>> id_mappings_;
+  std::vector<IdMapping> id_mappings_;
 };
 
 template<typename... Ts> class PublishMessageAction : public Action<Ts...> {
