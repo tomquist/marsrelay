@@ -22,7 +22,7 @@ Marstek batteries talk to two cloud services: an HTTP API (date/time sync and si
 2. **Redirects Internet Requests** (`capture_dns` component): When the battery looks up any Marstek cloud hostname via DNS, Marsrelay answers with its own IP address, so all cloud traffic ends up at the ESP32
 3. **Acts Like Marstek's HTTP Server** (`marstack` component): A web server responds to the Marstek cloud HTTP endpoints the battery calls (for example `GET /app/neng/getDateInfoeu.php`, which the battery uses to sync its clock), so the battery believes it is talking to the real cloud
 4. **Acts Like Marstek's MQTT Broker** (`mosquitto_broker` component): An embedded TLS MQTT broker (port 8883) accepts the battery's cloud MQTT connection and bridges it to your home network:
-   - Messages the battery publishes on `marstek_energy/<deviceType>/device/<deviceId>/...` are forwarded to your home MQTT broker
+   - Messages the battery publishes on `marstek_energy/<deviceType>/device/<deviceId>/...` (or `hame_energy/...` on older firmware) are forwarded to your home MQTT broker
    - Control messages published on your home broker under `marstek_energy/<deviceType>/App/<deviceId>/ctrl` (for example by [hm2mqtt](https://github.com/tomquist/hm2mqtt)) are delivered back to the battery
 5. **Bridges Power Meter Traffic** (`udp_proxy` component): UDP broadcasts used for power meter discovery and zero feed-in control are relayed between the battery's network and your home network
 
@@ -267,6 +267,8 @@ Edit the `substitutions` section at the top of the configuration file:
 2. Wait for a message to appear on the topic: `marstek_energy/<deviceType>/device/<deviceId>/ctrl`. The battery publishes on its own schedule — **this can take up to 20 minutes**, so keep MQTT Explorer connected and be patient
 3. Note down the **`deviceType`** and **`deviceId`** from the topic
 
+> **Check both topic prefixes.** Depending on its firmware generation, the battery uses either `marstek_energy/...` or the older `hame_energy/...` prefix for its cloud topics, so the `/device/` topic may appear under either one. If your battery uses `hame_energy`, one config adjustment is needed so commands reach it — see [Troubleshooting](#the-battery-doesnt-react-to-commands-eg-cd1).
+
 > **Only topics containing `/device/` come from your battery.** You will likely also see topics like `marstek_energy/<deviceType>/App/<id>/ctrl` — these are control messages *sent by* hm2mqtt (or the app), not by your battery. They tell you nothing about your battery's device ID, so ignore them in this step.
 
 Depending on the battery's firmware version, the `deviceId` in the topic is either the battery's Bluetooth MAC address (12 hex characters, e.g. `009b08a571ee`) or a much longer encrypted ID. Both are normal — see [Device IDs](#device-ids-mac-address-vs-encrypted-id) for what this means for your hm2mqtt configuration.
@@ -343,23 +345,65 @@ Two ways to find out which encrypted ID belongs to which battery:
 
 ## Troubleshooting
 
-### The battery stopped reacting to commands (e.g. `cd=1`) after a firmware update
+### The battery doesn't react to commands (e.g. `cd=1`)
 
-Newer firmware switches the battery from using its plain MAC address to an [encrypted ID](#device-ids-mac-address-vs-encrypted-id) in its MQTT topics (e.g. Jupiter C+ with firmware v142). Marsrelay still forwards everything, but hm2mqtt keeps publishing commands to the old MAC-based topic that the battery no longer listens on.
+Marsrelay's log shows `Received control message: ...` but the battery never answers. The command is reaching Marsrelay, but it doesn't match the topic the battery actually listens on. There are two common causes — compare the `.../device/<deviceId>/...` topic the battery publishes on (see [Step 5](#step-5-find-your-device-information)) with the topic your commands arrive on:
 
-**Fix:** find the battery's new encrypted ID (see [Finding the encrypted ID](#finding-the-encrypted-id)) and either configure it as the `deviceId` in hm2mqtt or add an `id_mappings` entry in Marsrelay. Your setup stays fully offline either way.
+**Cause 1: Wrong topic prefix (`hame_energy` vs. `marstek_energy`).** Batteries use one of two cloud topic prefixes depending on their firmware generation: older firmware talks to the 2024-generation cloud broker using `hame_energy/...`, newer firmware to the 2025 generation using `marstek_energy/...`. The example configuration only forwards commands for `marstek_energy/+/App/+/ctrl`. If your battery's `/device/` topics appear under `hame_energy/...`, subscribe to that prefix as well (or instead) in the `mqtt.on_connect` lambda:
+
+```yaml
+mqtt:
+  # ...
+  on_connect:
+    - lambda: |-
+        id(mqtt_client).subscribe("hame_energy/+/App/+/ctrl", [=](const std::string &topic, const std::string &payload) {
+          ESP_LOGD("MQTT", "Received control message: %s", topic.c_str());
+          id(local_broker).publish_message(topic, payload);
+        });
+        // keep the existing marstek_energy subscription from the example config here as well
+```
+
+The outgoing direction needs no change: the `mosquitto_broker` `on_message` forwarding matches any topic containing `/device/`, regardless of prefix.
+
+**Cause 2: The device ID changed to an encrypted ID after a firmware update.** Newer firmware switches the battery from its plain MAC address to an [encrypted ID](#device-ids-mac-address-vs-encrypted-id) in its MQTT topics (e.g. Jupiter C+ with firmware v142). hm2mqtt then keeps publishing commands to the old MAC-based topic that the battery no longer listens on. **Fix:** find the battery's new encrypted ID (see [Finding the encrypted ID](#finding-the-encrypted-id)) and either configure it as the `deviceId` in hm2mqtt or add an `id_mappings` entry in Marsrelay. Your setup stays fully offline either way.
 
 ### No `.../device/...` topic ever appears in MQTT Explorer
 
 Work through this checklist:
 
-1. **Are you looking at the right topics?** Topics under `marstek_energy/<deviceType>/App/...` are commands *from* hm2mqtt, not data from your battery. Only `.../device/...` topics come from the battery.
+1. **Are you looking at the right topics?** Topics under `marstek_energy/<deviceType>/App/...` are commands *from* hm2mqtt, not data from your battery. Only `.../device/...` topics come from the battery — and they may appear under the `hame_energy/...` prefix instead of `marstek_energy/...` depending on firmware, so watch both.
 2. **Wait long enough.** The battery can take up to 20 minutes to publish. Keep MQTT Explorer connected the whole time.
 3. **Is the battery really connected to the Marsrelay access point?** The Marstek app sometimes reports a successful WiFi change even though the battery didn't actually connect. Check the Marsrelay logs (web interface or USB): when the battery is connected, you'll see its HTTP requests, e.g. `HTTP GET /app/neng/getDateInfoeu.php`. If those requests appear but no MQTT `/device/` topic does, the battery is connected and the problem is on the MQTT side (see next points).
 4. **Can Marsrelay reach your home MQTT broker?** Verify `mqtt_broker`, `mqtt_username` and `mqtt_password` in the substitutions, and check the ESPHome logs for MQTT connection errors.
 5. **Is the ESP32 stable?** Watch the logs via USB for a crash loop, and make sure the `psram` settings match your board.
 
 If you only need the device ID while you keep debugging, you don't have to wait for the topic: get it from Hame Relay's startup logs instead (see [Finding the encrypted ID](#finding-the-encrypted-id)).
+
+### The log repeats `getDateInfoeu.php` requests and UDP proxy messages — is something wrong?
+
+No — that's what healthy operation looks like. `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged between the networks. Both repeat at fixed intervals for as long as the battery is connected.
+
+Two related things that are easy to misread:
+
+- The messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) on your home broker, like `{"source_ip":...,"url":"/app/neng/getDateInfoeu.php",...}`, are **diagnostic logs** of the battery's HTTP requests — they are not battery data and you don't need to do anything with them.
+- The battery does **not** push its telemetry (SoC, solar power, ...) on its own. That data only appears under the `.../device/...` topics when something requests it — which is exactly what [hm2mqtt](https://github.com/tomquist/hm2mqtt) does (e.g. by sending `cd=1`). If you only run Marsrelay without hm2mqtt, seeing nothing but `request` messages is expected.
+
+### Communication stops after a few hours, or the log shows broker crashes
+
+If the ESP32 log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable to accept new connection, system socket count has been exceeded`, first make sure you're on the latest `main` — earlier versions of the embedded broker had crash bugs that have since been fixed. Beyond that:
+
+- Some users report better long-term stability with `CONFIG_LWIP_MAX_SOCKETS: "32"` and `CONFIG_LWIP_SOCKET_OFFSET: "16"` in the `sdkconfig_options` (instead of the defaults from the example config).
+- A power cycle of the ESP32 restores communication as a stopgap.
+- The log line `TLS client: certificate verification relaxed (CN check disabled, ...)` is expected with `tls_skip_verification: true` and is not an error.
+- If crashes persist, double-check the `psram` settings match your board, and consider trying a standard ESP32-S3 devkit board.
+
+Long-running dropouts where MQTT and UDP stop together while WiFi stays up are still being investigated in [issue #10](https://github.com/tomquist/marsrelay/issues/10) — if you're affected, the debugging steps and current findings are collected there.
+
+### The battery can't reach a power meter on my home network (e.g. EcoTracker)
+
+The Marsrelay access point is a separate network, so devices on your home LAN are not directly reachable from the battery. The `udp_proxy` component bridges exactly one thing: **UDP broadcasts** used by the supported meter protocols (Shelly, CT00x). Meters that are polled over **TCP** — such as the everHome EcoTracker — cannot be bridged this way ([issue #16](https://github.com/tomquist/marsrelay/issues/16)).
+
+Workaround: bring the meter reading into ESPHome as a sensor (for example imported from Home Assistant) and serve it to the battery with the [Shelly UDP emulator](#optional-shelly-udp-emulator-issue-6) directly on the ESP32.
 
 ### hm2mqtt shows all entities as unavailable (or values frozen at old state)
 
