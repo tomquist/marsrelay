@@ -14,9 +14,14 @@ name: wifi-update-check
 # failure. The detection logic lives in scripts/check-wifi-upstream.sh; the
 # actual re-vendor + patch re-apply reuses scripts/update-wifi.sh.
 #
-# Set the optional secret WIFI_UPDATE_TOKEN to a PAT to have the generated PR's
-# own CI (CI / wifi-fork-check) run; with the default GITHUB_TOKEN, pushes from
-# this workflow don't trigger other workflows.
+# Authentication: the default GITHUB_TOKEN cannot open the PR here -- GitHub
+# blocks Actions from creating pull requests. Configure a GitHub App instead by
+# setting the WIFI_UPDATE_APP_ID repo *variable* and the WIFI_UPDATE_APP_PRIVATE_KEY
+# repo *secret* (App needs Contents: RW + Pull requests: RW; see
+# components/wifi/README.md for the one-time setup). The minted App token opens the
+# PR and, unlike GITHUB_TOKEN, its push triggers the generated PR's own CI
+# (CI / wifi-fork-check). Without the App configured the job falls back to
+# GITHUB_TOKEN: change detection still works, but opening a PR will fail.
 
 on:
   schedule:
@@ -31,23 +36,35 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
+      # Mint a short-lived token from the GitHub App when it's configured. The App
+      # ID isn't sensitive (repo variable); only the private key is a secret. When
+      # the App isn't set up the step is skipped and everything falls back to
+      # github.token via the `|| github.token` below.
+      - name: Generate GitHub App token
+        id: app-token
+        if: ${{ vars.WIFI_UPDATE_APP_ID != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.WIFI_UPDATE_APP_ID }}
+          private-key: ${{ secrets.WIFI_UPDATE_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: true
-          token: ${{ secrets.WIFI_UPDATE_TOKEN || github.token }}
+          token: ${{ steps.app-token.outputs.token || github.token }}
 
       - name: Detect upstream wifi change
         id: detect
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: ./scripts/check-wifi-upstream.sh
 
       - name: Look for an existing auto-update PR
         if: steps.detect.outputs.changed == 'true'
         id: existing
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           count=$(gh pr list --state open --json headRefName \
             --jq '[.[] | select(.headRefName | startswith("automated/update-wifi-"))] | length')
@@ -59,7 +76,7 @@ jobs:
         id: update
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           WIFI_VERSION: ${{ steps.detect.outputs.latest }}
         run: |
           git config user.name "github-actions[bot]"
@@ -71,7 +88,7 @@ jobs:
       - name: Open pull request
         if: steps.detect.outputs.changed == 'true' && steps.existing.outputs.count == '0' && steps.update.outcome == 'success'
         env:
-          GH_TOKEN: ${{ secrets.WIFI_UPDATE_TOKEN || github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           WIFI_VERSION: ${{ steps.detect.outputs.latest }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |

@@ -103,9 +103,29 @@ component actually changed:
   manual `scripts/update-wifi.sh <version>` + conflict resolution is needed.
 
 So the only red state is "upstream changed the component in a way we can't carry
-over automatically". Set the optional `WIFI_UPDATE_TOKEN` secret (a PAT) if you
-want the generated PR's own CI to run — pushes made with the default
-`GITHUB_TOKEN` don't trigger other workflows.
+over automatically".
+
+### Authenticating the auto-update PR (GitHub App)
+
+Opening the PR needs a token the default `GITHUB_TOKEN` can't provide: GitHub
+blocks Actions from creating pull requests, and `GITHUB_TOKEN` pushes don't
+trigger the new PR's own CI. A GitHub App token fixes both. One-time setup:
+
+1. Create a GitHub App (Settings → Developer settings → GitHub Apps → *New GitHub
+   App*). Give it any name; set Homepage URL to the repo; **uncheck** *Webhook →
+   Active*.
+2. Under *Repository permissions* grant **Contents: Read and write** and **Pull
+   requests: Read and write**, then create the App.
+3. On the App's page, note its **App ID**, and click *Generate a private key* to
+   download the `.pem`.
+4. *Install App* → install it on this repository (only-select-repositories).
+5. In the repo, add **Settings → Secrets and variables → Actions**:
+   - a **variable** named `WIFI_UPDATE_APP_ID` = the App ID
+   - a **secret** named `WIFI_UPDATE_APP_PRIVATE_KEY` = the full `.pem` contents
+
+With those set, `wifi-update-check` mints an App token, opens the
+`automated/update-wifi-<version>` PR, and the App's push triggers that PR's CI.
+Leave them unset and the job still detects upstream changes but can't open a PR.
 
 ## Why a full fork (instead of a small override)
 
