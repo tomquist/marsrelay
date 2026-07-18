@@ -61,7 +61,7 @@ Note that the official Marstek app can no longer reach the battery through the c
 
 ## Marsrelay, hm2mqtt and Hame Relay
 
-Three related projects are often mentioned together. They solve different problems:
+Marsrelay is one of three companion projects that each solve a different part of Marstek integration and can be combined as needed:
 
 | Project | Role |
 |---------|------|
