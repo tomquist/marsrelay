@@ -184,7 +184,10 @@ void MosquittoBroker::publish_message(const std::string &topic, const std::strin
 namespace {
 
 // Device families whose hm2mqtt integration derives an encrypted topic id from
-// the Bluetooth MAC on `marstek_energy` topics (mirrors hm2mqtt's list).
+// the Bluetooth MAC on `marstek_energy` topics. This list must mirror
+// hm2mqtt's `encryptedDeviceTypes` exactly. HMB is deliberately absent even
+// though it belongs to the B2500 family: hm2mqtt uses the plain MAC for HMB,
+// and HMB firmware never uses the `marstek_energy` prefix anyway.
 bool is_b2500_type_segment(const std::string &segment) {
   static const char *const B2500_BASE_TYPES[] = {"HMA", "HMF", "HMK", "HMJ"};
   std::string base = segment.substr(0, segment.find('-'));
