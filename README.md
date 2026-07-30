@@ -81,7 +81,9 @@ In the battery's WiFi settings, connect it to the Marsrelay access point (`ap_ss
 
 ### 3. Find your device information
 
-In MQTT Explorer (connected to your home broker), wait for a message on `marstek_energy/<deviceType>/device/<deviceId>/ctrl` — or `hame_energy/...` on older firmware. **This can take up to 20 minutes.** Note down `deviceType` and `deviceId`.
+In MQTT Explorer (connected to your home broker), wait for a message on `marstek_energy/<deviceType>/device/<deviceId>/ctrl` — or `hame_energy/...` on older firmware. **Give this at least 30 minutes** — the first message usually arrives within 20, but longer is normal. Note down `deviceType` and `deviceId`.
+
+For the quickest start, boot the ESP32 first and power-cycle the battery once Marsrelay is running: a battery that joined the access point earlier can stay quiet for a long time.
 
 - Ignore `.../App/...` topics — those are commands *sent by* hm2mqtt, not by your battery.
 - Nothing appearing? See [troubleshooting](docs/troubleshooting.md#no-device-topic-ever-appears). You can also read the ID from Hame Relay's startup logs instead of waiting (see [finding the encrypted ID](#finding-the-encrypted-id)).
@@ -128,7 +130,7 @@ With multiple batteries, make sure each mapping pairs the IDs of the **same phys
 
 ### Finding the encrypted ID
 
-1. **MQTT Explorer:** wait for the battery's `.../device/<deviceId>/ctrl` topic (step 3, up to 20 minutes). With multiple batteries, power all but one off to attribute the IDs unambiguously.
+1. **MQTT Explorer:** wait for the battery's `.../device/<deviceId>/ctrl` topic (step 3, 30 minutes or more). With multiple batteries, power all but one off to attribute the IDs unambiguously.
 2. **Hame Relay startup logs:** temporarily install [Hame Relay](https://github.com/tomquist/hame-relay) with your Marstek account credentials — on startup it prints each device's MAC and encrypted ID:
 
    ```text

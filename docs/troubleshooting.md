@@ -30,10 +30,11 @@ The outgoing direction needs no change: the `mosquitto_broker` `on_message` forw
 Work through this checklist:
 
 1. **Are you looking at the right topics?** Only `.../device/...` topics come from the battery — `.../App/...` topics are commands *from* hm2mqtt. Watch both the `marstek_energy` and `hame_energy` prefixes.
-2. **Wait long enough.** The battery can take up to 20 minutes to publish. Keep MQTT Explorer connected the whole time.
-3. **Is the battery really connected to the Marsrelay access point?** The Marstek app sometimes reports a successful WiFi change even though the battery didn't connect. When it is connected, the Marsrelay log shows its HTTP requests, e.g. `HTTP GET /app/neng/getDateInfoeu.php`. If those appear but no `/device/` topic does, the problem is on the MQTT side (next points).
-4. **Can Marsrelay reach your home MQTT broker?** Verify `mqtt_broker`, `mqtt_username` and `mqtt_password` in the substitutions, and check the ESPHome logs for MQTT connection errors.
-5. **Is the ESP32 stable?** Watch the logs via USB for a crash loop, and make sure the `psram` settings match your board.
+2. **Wait long enough.** The battery usually publishes within 20 minutes, but half an hour or more happens ([#42](https://github.com/tomquist/marsrelay/issues/42)). Keep MQTT Explorer connected the whole time.
+3. **Power-cycle the battery once Marsrelay is up.** A battery that joined the access point before Marsrelay was running can sit in a stale state for a long time. Boot the ESP32 first, give it a minute, then switch the battery off and on again — and start the waiting time from there.
+4. **Is the battery really connected to the Marsrelay access point?** The Marstek app sometimes reports a successful WiFi change even though the battery didn't connect. When it is connected, the Marsrelay log shows its HTTP requests, e.g. `HTTP GET /app/neng/getDateInfoeu.php`. If those appear but no `/device/` topic does, the battery is talking to Marsrelay and only MQTT is still pending — keep waiting and check the next points.
+5. **Can Marsrelay reach your home MQTT broker?** Verify `mqtt_broker`, `mqtt_username` and `mqtt_password` in the substitutions, and check the ESPHome logs for MQTT connection errors.
+6. **Is the ESP32 stable?** Watch the logs via USB for a crash loop, and make sure the `psram` settings match your board.
 
 If you only need the device ID while you keep debugging, get it from Hame Relay's startup logs instead of waiting (see [finding the encrypted ID](../README.md#finding-the-encrypted-id)).
 
