@@ -81,7 +81,7 @@ In the battery's WiFi settings, connect it to the Marsrelay access point (`ap_ss
 
 ### 3. Find your device information
 
-With Marsrelay up and running, power-cycle the battery once: a battery that joined the access point earlier can stay quiet for a long time.
+With Marsrelay up and running, power-cycle the battery once: it clears the battery's DNS cache, so the cloud hostnames are looked up again and now resolve to Marsrelay. A battery that joined the access point earlier can otherwise stay quiet for a long time.
 
 Then, in MQTT Explorer (connected to your home broker), wait for a message on `marstek_energy/<deviceType>/device/<deviceId>/ctrl` — or `hame_energy/...` on older firmware. **Give this at least 30 minutes** from the power cycle — the first message usually arrives within 20, but longer is normal. Note down `deviceType` and `deviceId`.
 
