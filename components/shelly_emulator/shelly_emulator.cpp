@@ -140,7 +140,7 @@ void ShellyEmulator::process_socket_() {
   this->buffer_[len] = 0;
 
   // Parse request
-  DynamicJsonDocument req_doc(768);
+  JsonDocument req_doc;
   DeserializationError err = deserializeJson(req_doc, (const char *) this->buffer_, len);
   if (err) {
     ESP_LOGV(TAG, "Invalid JSON: %s", err.c_str());
@@ -165,12 +165,12 @@ void ShellyEmulator::process_socket_() {
   this->fill_powers_(powers);
 
   // Build response
-  DynamicJsonDocument resp_doc(768);
+  JsonDocument resp_doc;
   resp_doc["id"] = request_id;
   resp_doc["src"] = this->device_id_;
   resp_doc["dst"] = "unknown";
 
-  JsonObject result = resp_doc.createNestedObject("result");
+  JsonObject result = resp_doc["result"].to<JsonObject>();
 
   if (std::strcmp(method, "EM.GetStatus") == 0) {
     float a = this->calculate_derived_value_(powers[0]);
