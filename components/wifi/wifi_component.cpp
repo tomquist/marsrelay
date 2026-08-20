@@ -824,6 +824,15 @@ void WiFiComponent::loop() {
           this->status_clear_warning();
           this->last_connected_ = now;
 
+#ifdef USE_WIFI_CONNECT_STATE_LISTENERS
+          // A driver-initiated roam (e.g. 802.11v BTM) re-associates without the
+          // state machine ever leaving STA_CONNECTED, so the notification the
+          // connected event marked pending would never be flushed by
+          // check_connecting_finished(). Cheap when nothing is pending: the
+          // method returns immediately on a single flag test.
+          this->notify_connect_state_listeners_();
+#endif
+
           // Post-connect roaming: check for better AP
           if (this->post_connect_roaming_) {
             if (this->roaming_state_ == RoamingState::SCANNING) {
@@ -848,18 +857,18 @@ void WiFiComponent::loop() {
 
 #ifdef USE_WIFI_AP
     if (this->has_ap() && !this->ap_setup_) {
-      // marsrelay: always start the fallback AP so it runs alongside STA,
-      // instead of only starting it after ap_timeout_ since last_connected_.
-      ESP_LOGI(TAG, "Starting fallback AP");
-      this->setup_ap_config_();
+      if (this->ap_timeout_ != 0 && (now - this->last_connected_ > this->ap_timeout_)) {
+        ESP_LOGI(TAG, "Starting fallback AP");
+        this->setup_ap_config_();
 #ifdef USE_CAPTIVE_PORTAL
-      if (captive_portal::global_captive_portal != nullptr) {
-        // Reset so we force one full scan after captive portal starts
-        // (previous scans were filtered because captive portal wasn't active yet)
-        this->has_completed_scan_after_captive_portal_start_ = false;
-        captive_portal::global_captive_portal->start();
-      }
+        if (captive_portal::global_captive_portal != nullptr) {
+          // Reset so we force one full scan after captive portal starts
+          // (previous scans were filtered because captive portal wasn't active yet)
+          this->has_completed_scan_after_captive_portal_start_ = false;
+          captive_portal::global_captive_portal->start();
+        }
 #endif
+      }
     }
 #endif  // USE_WIFI_AP
 
@@ -1108,7 +1117,7 @@ void WiFiComponent::connect_soon_() {
 
 void WiFiComponent::start_connecting(const WiFiAP &ap) {
   // Log connection attempt at INFO level with priority
-  char bssid_s[18];
+  char bssid_s[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
   int8_t priority = 0;
 
   if (ap.has_bssid()) {
@@ -1614,9 +1623,8 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
         captive_portal::global_captive_portal->end();
       }
 #endif
-      // marsrelay: keep the AP enabled alongside the STA connection
-      // (upstream disables it via this->wifi_mode_({}, false)).
-      ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
+      ESP_LOGD(TAG, "Disabling AP");
+      this->wifi_mode_({}, false);
     }
 #ifdef USE_IMPROV
     if (this->is_esp32_improv_active_()) {
@@ -1668,7 +1676,7 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
     this->clear_all_bssid_priorities_();
 
 #ifdef USE_WIFI_FAST_CONNECT
-    this->save_fast_connect_settings_();
+    this->save_fast_connect_settings_(this->wifi_bssid(), get_wifi_channel());
 #endif
 
     this->release_scan_results_();
@@ -2060,7 +2068,7 @@ void WiFiComponent::log_and_adjust_priority_for_failed_connect_() {
         (old_priority > std::numeric_limits<int8_t>::min()) ? (old_priority - 1) : std::numeric_limits<int8_t>::min();
     this->set_sta_priority(failed_bssid.value(), new_priority);
   }
-  char bssid_s[18];
+  char bssid_s[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
   format_mac_addr_upper(failed_bssid.value().data(), bssid_s);
   ESP_LOGD(TAG, "Failed " LOG_SECRET("'%s'") " " LOG_SECRET("(%s)") ", priority %d → %d", ssid != nullptr ? ssid : "",
            bssid_s, old_priority, new_priority);
@@ -2293,9 +2301,7 @@ bool WiFiComponent::load_fast_connect_settings_(WiFiAP &params) {
   return false;
 }
 
-void WiFiComponent::save_fast_connect_settings_() {
-  bssid_t bssid = wifi_bssid();
-  uint8_t channel = get_wifi_channel();
+void WiFiComponent::save_fast_connect_settings_(const bssid_t &bssid, uint8_t channel) {
   // selected_sta_index_ is always valid here (called only after successful connection)
   // Fallback to 0 is defensive programming for robustness
   int8_t ap_index = this->selected_sta_index_ >= 0 ? this->selected_sta_index_ : 0;
@@ -2407,6 +2413,25 @@ void WiFiComponent::clear_roaming_state_() {
   this->roaming_target_bssid_ = {};
   this->roaming_state_ = RoamingState::IDLE;
 }
+
+#ifdef USE_ESP32
+void WiFiComponent::handle_driver_roam_(const bssid_t &bssid, uint8_t channel) {
+  // A driver-initiated roam (e.g. 802.11v BTM) re-associates without the state
+  // machine ever leaving STA_CONNECTED, so check_connecting_finished() never runs.
+  // Redo its post-connect bookkeeping here. roaming_state_ is deliberately left
+  // untouched so an in-flight roaming scan is not orphaned. The BSSID and
+  // channel both come from the connected event so the saved pair is consistent:
+  // the radio may be off-channel during a roaming scan, and a later queued
+  // event may have moved the driver on again by the time this one is processed.
+  this->roaming_last_check_ = App.get_loop_component_start_time();
+  this->roaming_attempts_ = 0;
+  this->roaming_scan_end_ = 0;
+  this->clear_all_bssid_priorities_();
+#ifdef USE_WIFI_FAST_CONNECT
+  this->save_fast_connect_settings_(bssid, channel);
+#endif
+}
+#endif
 
 void WiFiComponent::release_scan_results_() {
   if (!this->keep_scan_results_) {
