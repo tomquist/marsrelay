@@ -1,8 +1,8 @@
 diff --git a/components/wifi/wifi_component.cpp b/components/wifi/wifi_component.cpp
-index 650b06c..ec418a4 100644
+index 127eb50..17f102a 100644
 --- a/components/wifi/wifi_component.cpp
 +++ b/components/wifi/wifi_component.cpp
-@@ -848,18 +848,18 @@ void WiFiComponent::loop() {
+@@ -857,18 +857,18 @@ void WiFiComponent::loop() {
  
  #ifdef USE_WIFI_AP
      if (this->has_ap() && !this->ap_setup_) {
@@ -31,7 +31,7 @@ index 650b06c..ec418a4 100644
      }
  #endif  // USE_WIFI_AP
  
-@@ -1614,8 +1614,9 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
+@@ -1623,8 +1623,9 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
          captive_portal::global_captive_portal->end();
        }
  #endif
