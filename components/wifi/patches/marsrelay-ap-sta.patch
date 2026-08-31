@@ -1,5 +1,5 @@
 diff --git a/components/wifi/wifi_component.cpp b/components/wifi/wifi_component.cpp
-index 127eb50..17f102a 100644
+index 3a42ace..de4019c 100644
 --- a/components/wifi/wifi_component.cpp
 +++ b/components/wifi/wifi_component.cpp
 @@ -857,18 +857,18 @@ void WiFiComponent::loop() {
