@@ -530,7 +530,7 @@ void WiFiComponent::log_discarded_scan_result_(const char *ssid, const uint8_t *
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   // Skip logging during roaming scans to avoid log buffer overflow
   // (roaming scans typically find many networks but only care about same-SSID APs)
-  if (this->roaming_state_ == RoamingState::SCANNING) {
+  if (this->is_roaming_scan_active()) {
     return;
   }
   char bssid_s[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
@@ -835,7 +835,7 @@ void WiFiComponent::loop() {
 
           // Post-connect roaming: check for better AP
           if (this->post_connect_roaming_) {
-            if (this->roaming_state_ == RoamingState::SCANNING) {
+            if (this->is_roaming_scan_active()) {
               if (this->scan_done_) {
                 this->process_roaming_scan_();
               }
@@ -857,18 +857,18 @@ void WiFiComponent::loop() {
 
 #ifdef USE_WIFI_AP
     if (this->has_ap() && !this->ap_setup_) {
-      // marsrelay: always start the fallback AP so it runs alongside STA,
-      // instead of only starting it after ap_timeout_ since last_connected_.
-      ESP_LOGI(TAG, "Starting fallback AP");
-      this->setup_ap_config_();
+      if (this->ap_timeout_ != 0 && (now - this->last_connected_ > this->ap_timeout_)) {
+        ESP_LOGI(TAG, "Starting fallback AP");
+        this->setup_ap_config_();
 #ifdef USE_CAPTIVE_PORTAL
-      if (captive_portal::global_captive_portal != nullptr) {
-        // Reset so we force one full scan after captive portal starts
-        // (previous scans were filtered because captive portal wasn't active yet)
-        this->has_completed_scan_after_captive_portal_start_ = false;
-        captive_portal::global_captive_portal->start();
-      }
+        if (captive_portal::global_captive_portal != nullptr) {
+          // Reset so we force one full scan after captive portal starts
+          // (previous scans were filtered because captive portal wasn't active yet)
+          this->has_completed_scan_after_captive_portal_start_ = false;
+          captive_portal::global_captive_portal->start();
+        }
 #endif
+      }
     }
 #endif  // USE_WIFI_AP
 
@@ -1623,9 +1623,8 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
         captive_portal::global_captive_portal->end();
       }
 #endif
-      // marsrelay: keep the AP enabled alongside the STA connection
-      // (upstream disables it via this->wifi_mode_({}, false)).
-      ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
+      ESP_LOGD(TAG, "Disabling AP");
+      this->wifi_mode_({}, false);
     }
 #ifdef USE_IMPROV
     if (this->is_esp32_improv_active_()) {
@@ -2153,7 +2152,7 @@ void WiFiComponent::retry_connect() {
     // Roam connection failed - transition to reconnecting
     ESP_LOGD(TAG, "Roam failed, reconnecting (attempt %u/%u)", this->roaming_attempts_, ROAMING_MAX_ATTEMPTS);
     this->roaming_state_ = RoamingState::RECONNECTING;
-  } else if (this->roaming_state_ == RoamingState::SCANNING) {
+  } else if (this->is_roaming_scan_active()) {
     // Disconnected during roam scan - transition to RECONNECTING so the attempts
     // counter is preserved when reconnection succeeds (IDLE would reset it)
     ESP_LOGD(TAG, "Disconnected during roam scan (attempt %u/%u)", this->roaming_attempts_, ROAMING_MAX_ATTEMPTS);
