@@ -77,6 +77,13 @@ std::string request_url(AsyncWebServerRequest *request) {
 #endif
 }
 
+// The battery appends its device id as the final path segment, e.g.
+// "/data-upload/v1/venus/<id>", so this is a prefix match rather than exact.
+bool is_data_upload_path(const std::string &url) {
+  static const std::string prefix = "/data-upload/v1/venus/";
+  return url.compare(0, prefix.size(), prefix) == 0;
+}
+
 const char *method_name(http_method method) {
   switch (method) {
     case HTTP_GET:
@@ -103,7 +110,8 @@ bool Marstack::canHandle(AsyncWebServerRequest *request) const {
            url == "/app/Solar/puterrinfo.php" || url == "/ems/api/v1/getRealtimeSoc";
   }
   if (request->method() == HTTP_POST) {
-    return request_url(request) == "/app/Solar/puterrinfo.php";
+    const std::string url = request_url(request);
+    return url == "/app/Solar/puterrinfo.php" || is_data_upload_path(url);
   }
   return false;
 }
@@ -232,6 +240,14 @@ void Marstack::handleRequest(AsyncWebServerRequest *request) {
       request->send(200, "text/plain", "_2");
       return;
     }
+  }
+
+  if (request->method() == HTTP_POST && is_data_upload_path(url)) {
+    if (!body.empty()) {
+      ESP_LOGD(TAG, "POST %s body: %s", url.c_str(), body.c_str());
+    }
+    request->send(200, "application/json", "{\"code\":1,\"msg\":\"ok\"}");
+    return;
   }
 
   if (request->method() == HTTP_GET && url == "/ems/api/v1/getRealtimeSoc") {
