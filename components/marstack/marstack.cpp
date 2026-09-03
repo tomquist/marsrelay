@@ -78,10 +78,14 @@ std::string request_url(AsyncWebServerRequest *request) {
 }
 
 // The battery appends its device id as the final path segment, e.g.
-// "/data-upload/v1/venus/<id>", so this is a prefix match rather than exact.
+// "/data-upload/v1/venus/<id>", so this matches a non-empty single segment
+// after the prefix rather than an exact path.
 bool is_data_upload_path(const std::string &url) {
   static const std::string prefix = "/data-upload/v1/venus/";
-  return url.compare(0, prefix.size(), prefix) == 0;
+  if (url.compare(0, prefix.size(), prefix) != 0 || url.size() == prefix.size()) {
+    return false;
+  }
+  return url.find('/', prefix.size()) == std::string::npos;
 }
 
 const char *method_name(http_method method) {
