@@ -374,8 +374,17 @@ void Marstack::dispatch(const Request &req, Response &res) {
     ESP_LOGV(TAG, "%s %s body: %s", req.method.c_str(), req.url.c_str(), req.body.c_str());
   }
 
+  // A body the transport could not deliver whole never reaches an automation
+  // either: a consumer of `on_request` cannot tell a truncated payload from a
+  // complete one, so a deceptive partial record is worse than none. The
+  // transport has already logged why it came up short.
+  static const std::string EMPTY_BODY;
+  const std::string &trigger_body = req.body_complete ? req.body : EMPTY_BODY;
+  if (!req.body_complete) {
+    ESP_LOGD(TAG, "%s %s: body incomplete, handing automations an empty body", req.method.c_str(), req.url.c_str());
+  }
   for (auto *trigger : this->request_triggers_) {
-    trigger->trigger(req.method, req.url, req.body, req.source_ip);
+    trigger->trigger(req.method, req.url, trigger_body, req.source_ip);
   }
 
   if (req.method == "GET" && req.url == "/prod/api/v1/setB2500Report") {
