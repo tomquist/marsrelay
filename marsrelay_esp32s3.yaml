@@ -123,6 +123,12 @@ web_server:
 
 marstack:
   id: marstack_http
+  # Since Venus control firmware v150 the battery uploads its telemetry over
+  # TLS and resets its own network chip when those uploads go unanswered — every
+  # 900 s on WiFi, which is how a battery reaches Marsrelay. Answering them here
+  # keeps its upload buffer empty, so the reset never fires.
+  https:
+    port: 443
   on_request:
     - logger.log:
         format: "HTTP %s %s body=%s"
@@ -136,3 +142,12 @@ marstack:
             root["method"] = method;
             root["body"] = body;
           });
+  # Venus telemetry, decoded: about seventy fields per upload, published under
+  # marsrelay/venus/<deviceId>/telemetry. This is data the battery sends on its
+  # own — it does not replace hm2mqtt, which reads the MQTT side.
+  on_venus_upload:
+    - mqtt.publish:
+        topic: !lambda |-
+          return "${mqtt_topic_prefix}/venus/" + device_id + "/telemetry";
+        payload: !lambda |-
+          return telemetry;

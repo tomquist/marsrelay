@@ -1,0 +1,48 @@
+esphome:
+  name: test-marstack-https
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+wifi:
+  ssid: "test"
+  password: "testpass"
+  ap:
+    ssid: "fallback"
+    password: "fallbackpass"
+
+logger:
+
+time:
+  - platform: sntp
+    timezone: "Europe/Berlin"
+
+web_server:
+  port: 8080
+  version: 3
+
+marstack:
+  id: marstack_http
+  time_suffix: "04_0_0_0"
+  https:
+    port: 443
+    accept_all: false
+    hold_time: 25s
+    max_body: 4096
+    max_connections: 2
+  on_request:
+    - logger.log:
+        format: "HTTP %s %s"
+        args: [method.c_str(), url.c_str()]
+  on_venus_upload:
+    - logger.log:
+        format: "telemetry from %s: %s"
+        args: [device_id.c_str(), telemetry.c_str()]

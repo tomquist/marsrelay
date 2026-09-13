@@ -25,7 +25,7 @@ Marstek batteries talk to two cloud services: an HTTP API and an MQTT broker. Ma
 
 1. **WiFi access point** (`wifi`): the battery connects to it, while Marsrelay stays connected to your home WiFi
 2. **DNS capture** (`capture_dns`): every cloud hostname lookup is answered with Marsrelay's own IP
-3. **Cloud HTTP emulation** (`marstack`): answers the Marstek cloud endpoints the battery calls (e.g. clock sync via `getDateInfoeu.php`)
+3. **Cloud HTTP emulation** (`marstack`): answers the Marstek cloud endpoints the battery calls — clock sync via `getDateInfoeu.php` on port 80, and the TLS telemetry upload a Venus expects on port 443 (see [Venus: the network dropouts every 15 minutes](#venus-the-network-dropouts-every-15-minutes))
 4. **Cloud MQTT emulation** (`mosquitto_broker`): a TLS broker on port 8883 accepts the battery's cloud MQTT connection — battery data (`.../device/...` topics) is forwarded to your home broker, commands (`.../App/.../ctrl`) are relayed back
 5. **UDP proxy** (`udp_proxy`): bridges power meter broadcasts between both networks for zero feed-in
 
@@ -47,7 +47,7 @@ flowchart LR
         Meter[Smart meter / AstraMeter]
     end
     Battery -->|DNS| DNS
-    Battery -->|HTTP| HTTP
+    Battery -->|HTTP + HTTPS| HTTP
     Battery <-->|MQTT over TLS| Broker
     Battery <-.->|UDP| UDP
     UDP <-.-> Meter
@@ -142,6 +142,56 @@ With multiple batteries, make sure each mapping pairs the IDs of the **same phys
 
    This works even if the battery never publishes (or has never connected to Marsrelay); uninstall Hame Relay again afterwards.
 
+## Venus: the network dropouts every 15 minutes
+
+Marstek Venus batteries (E, D, E v3) on **control firmware v150** buffer their telemetry and upload it to the Marstek cloud. When an upload goes unacknowledged the buffer never drains — and the firmware then hardware-resets its own network chip on a fixed timer: every 900 s over WiFi, every 1800 s over Ethernet. For two to five seconds the chip is simply gone, so Modbus TCP sessions die, MQTT drops, and even ping stops answering. Then everything comes back, and the clock starts again.
+
+A battery on Marsrelay's access point is a battery on WiFi that cannot reach the cloud, so it is the 900-second variant that applies.
+
+Marsrelay answers that upload. `marstack`'s `https:` block serves `POST /data-upload/v1/venus/<id>` on port 443 with the acknowledgement the firmware waits for, the buffer stays empty, and the reset never fires. It is enabled in [`marsrelay_esp32s3.yaml`](marsrelay_esp32s3.yaml) and needs no DNS setup of your own — `capture_dns` already points every cloud hostname, `marstekcloud.com` included, at the ESP32:
+
+```yaml
+marstack:
+  id: marstack_http
+  https:
+    port: 443
+```
+
+Nothing on the battery changes, and no telemetry leaves your network.
+
+What that reply looks like is not a matter of taste. The firmware checks the body with `strstr` for `"code":` followed by `atoi`, so it has to evaluate to **0** — and the framing around it matters just as much: a reply with the same body but ordinary headers in an ordinary order is rejected, after which the battery retries four times and gives up. So `marstack` reproduces the real cloud's response byte for byte (header set, header order, chunked framing) and then holds the connection open for 25 seconds before closing it cleanly, because cutting it earlier makes the firmware throw away a reply it had already received. `raw_responses: false` goes back to ordinary framing if you ever need to compare.
+
+### Your telemetry, locally
+
+Every upload carries about seventy fields. `on_venus_upload` decodes the ones whose meaning is confirmed and passes the rest through untouched; the example config publishes the result to `<mqtt_topic_prefix>/venus/<deviceId>/telemetry`:
+
+```json
+{"soc": 57, "battery_power": -412, "battery_voltage": 52.31, "grid_power": -398,
+ "temperature_internal": 24.1, "control_firmware": "150", "unmapped": {"...": "..."}}
+```
+
+That is data the battery pushes on its own, separate from the MQTT side — you still want [hm2mqtt](https://github.com/tomquist/hm2mqtt) for Home Assistant entities.
+
+### What this does not fix
+
+The periodic resets stop. A second, smaller interruption does not, and it is worth knowing about before you go looking for it. Since v150 the upload runs over TLS, and a key exchange costs the battery's MCU around four seconds during which it stops serving Modbus — roughly twelve such gaps an hour, one per upload. It keeps answering ping throughout, so it is easy to tell apart from a reset, and it happens with the real cloud too. If you poll the battery over Modbus, raise your client's response timeout above ~8 seconds.
+
+One caveat is specific to serving this from an ESP32: the TLS version range the battery accepts could not be read out of its firmware, and ESP-IDF's mbedTLS no longer implements TLS 1.0 or 1.1, so Marsrelay offers TLS 1.2. If the log shows `TLS handshake with ... failed`, that is the likely reason — please open an issue with the log line.
+
+### Settings
+
+All optional. The defaults are what the behaviour described above assumes; `hold_time` in particular is not a knob to turn down.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `https.port` | `443` | where the TLS listener binds |
+| `https.hold_time` | `25s` | how long an answered connection is held before a clean close. Must exceed the battery's own 20 s receive timeout, or be `0s` to close at once |
+| `https.max_body` | `8192` | bytes kept from an upload body |
+| `https.max_connections` | `4` | connections that may be held open at once |
+| `https.accept_all` | `false` | answer *every* path with `{"code":0}`, not just the upload. Off deliberately: answering an endpoint whose expected reply nobody has reverse-engineered can change what the battery does in untested ways. Watch the log first |
+| `raw_responses` | `true` | reproduce the cloud's exact response framing on both ports |
+| `time_suffix` | `"04_0_0_0"` | the four trailing fields of the clock reply, mirrored from the real endpoint rather than invented |
+
 ## Optional: Shelly UDP Emulator
 
 Marsrelay can emulate a Shelly Gen2 energy meter (UDP JSON-RPC) directly on the ESP32, fed by ESPHome sensor values — based on the Shelly emulation in [AstraMeter](https://github.com/tomquist/AstraMeter) (formerly b2500-meter). Supports `EM.GetStatus` and `EM1.GetStatus`.
@@ -170,6 +220,7 @@ See [docs/troubleshooting.md](docs/troubleshooting.md) for:
 - [The battery doesn't react to commands (e.g. cd=1)](docs/troubleshooting.md#the-battery-doesnt-react-to-commands-eg-cd1)
 - [No /device/ topic ever appears](docs/troubleshooting.md#no-device-topic-ever-appears)
 - [Repeating getDateInfoeu.php requests and UDP proxy log lines](docs/troubleshooting.md#repeating-getdateinfoeuphp-requests-and-udp-proxy-log-lines) (spoiler: that's normal)
+- [A Venus keeps dropping off the network](docs/troubleshooting.md#a-venus-keeps-dropping-off-the-network)
 - [Communication stops after a few hours / broker crashes](docs/troubleshooting.md#communication-stops-after-a-few-hours-or-the-log-shows-broker-crashes)
 - [The battery can't reach a power meter on my home network](docs/troubleshooting.md#the-battery-cant-reach-a-power-meter-on-my-home-network-eg-ecotracker)
 - [hm2mqtt shows all entities as unavailable](docs/troubleshooting.md#hm2mqtt-shows-all-entities-as-unavailable)

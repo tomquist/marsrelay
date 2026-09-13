@@ -45,6 +45,21 @@ Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.ph
 - Messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) are **diagnostic logs** of the battery's HTTP requests — not battery data.
 - The battery does **not** push telemetry on its own. Data only appears under `.../device/...` when something requests it — which is what [hm2mqtt](https://github.com/tomquist/hm2mqtt) does (e.g. `cd=1`). Without hm2mqtt, seeing nothing but `request` messages is expected.
 
+## A Venus keeps dropping off the network
+
+Symptoms: the battery vanishes for two to five seconds on a fixed rhythm — Modbus TCP times out, Home Assistant shows it unavailable, even ping stops answering — and then it is back until the next time.
+
+That is the battery's own firmware, not your network. On Venus control firmware **v150** the battery buffers telemetry records and hardware-resets its network chip whenever the buffer is not being drained by uploads to the Marstek cloud: every 900 s on WiFi, which is how a battery reaches Marsrelay. Marsrelay answers those uploads so the buffer stays empty; see [Venus: the network dropouts every 15 minutes](../README.md#venus-the-network-dropouts-every-15-minutes).
+
+If it still happens:
+
+1. **Is the TLS listener configured?** The `marstack:` block needs an `https:` section — configs created before it existed don't have one. Check for `Serving the Marstek cloud over TLS on port 443` in the log at boot.
+2. **Are uploads arriving and being answered?** Look for `POST /data-upload/v1/venus/<id>` in the log, or watch `<mqtt_topic_prefix>/venus/<deviceId>/telemetry`. Once the backlog has drained, uploads settle to roughly one per 300 s. A rigid one-per-60-s rhythm means the buffer is still above three records and the firmware is throttling itself — that clears on its own, but it can take the better part of an hour.
+3. **Does the handshake fail?** `TLS handshake with ... failed` means the battery and ESP-IDF's mbedTLS could not agree on a TLS version or cipher suite. ESP-IDF no longer implements TLS 1.0 or 1.1, so Marsrelay offers 1.2. Please open an issue with that log line.
+4. **Keep Marsrelay up.** A record is buffered every five minutes and only removed when an upload is answered, so an ESP32 that reboots repeatedly can let the backlog build back over the threshold.
+
+Note that this does not remove *every* interruption. Since v150 each upload runs over TLS, and the key exchange stops the battery serving Modbus for about four seconds — roughly twelve times an hour, one per upload, with the real cloud too. It keeps answering ping throughout, which is how you tell the two apart. Raise your Modbus client's response timeout above ~8 seconds.
+
 ## Communication stops after a few hours, or the log shows broker crashes
 
 If the log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable to accept new connection, system socket count has been exceeded`, first update to the latest `main` — earlier versions of the embedded broker had crash bugs that have been fixed. Beyond that:
@@ -68,4 +83,4 @@ hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what t
 
 ## Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
 
-Not with this codebase — it's an ESPHome project. But the concept ports: you'd need a WiFi hotspot, a DNS server that resolves every query to the Pi itself, an HTTP server implementing the Marstek cloud endpoints (see `components/marstack/`), and a TLS-enabled MQTT broker on port 8883 that bridges to your main broker (see `components/mosquitto_broker/`). See [How It Works](../README.md#how-it-works) for how the pieces fit together.
+Not with this codebase — it's an ESPHome project. But the concept ports: you'd need a WiFi hotspot, a DNS server that resolves every query to the Pi itself, an HTTP server implementing the Marstek cloud endpoints on port 80 plus a TLS one on 443 for the Venus telemetry upload (see `components/marstack/`), and a TLS-enabled MQTT broker on port 8883 that bridges to your main broker (see `components/mosquitto_broker/`). See [How It Works](../README.md#how-it-works) for how the pieces fit together.
