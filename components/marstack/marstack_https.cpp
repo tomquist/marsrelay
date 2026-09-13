@@ -312,15 +312,22 @@ bool MarstackHttps::read_request_(esp_tls_t *tls, Request &req) {
     content_length = static_cast<size_t>(strtoul(value.c_str(), nullptr, 10));
   } else if (header_value(headers, "Transfer-Encoding", value)) {
     // No battery firmware has been seen to do this, and guessing at a decoder
-    // for one is worse than saying so in the log.
-    ESP_LOGW(TAG, "Unsupported Transfer-Encoding '%s' from %s", value.c_str(), req.source_ip.c_str());
+    // for one is worse than saying so in the log. Whatever follows the headers
+    // is chunk framing rather than the body, so drop it instead of passing it
+    // on as though it were content.
+    ESP_LOGW(TAG, "Unsupported Transfer-Encoding '%s' from %s; answering without decoding the body", value.c_str(),
+             req.source_ip.c_str());
+    req.body_complete = false;
+    return true;
   }
 
   if (content_length > this->max_body_) {
-    // Keep the first max_body bytes and read the rest off the wire without
-    // storing it, so the connection stays in sync and the reply is still sent.
+    // Read the excess off the wire without storing it, so the connection stays
+    // in sync and the reply is still sent -- but mark the body short, so it is
+    // never decoded as if it were the whole record.
     ESP_LOGW(TAG, "Body from %s is %zu bytes, keeping the first %u (max_body)", req.source_ip.c_str(), content_length,
              (unsigned) this->max_body_);
+    req.body_complete = false;
   }
 
   size_t received = buffer.size() - (header_end + 4);

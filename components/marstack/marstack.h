@@ -20,6 +20,11 @@ struct Request {
   std::string url;  // path only, without the query string
   std::string body;
   std::string source_ip;
+  // False when the transport could not deliver the body whole (a transfer
+  // encoding it cannot decode, or more bytes than max_body). The endpoint is
+  // still answered -- an unacknowledged upload is what makes the battery reset
+  // its network chip -- but a partial body is not decoded as telemetry.
+  bool body_complete{true};
 };
 
 // The answer, in the shape the real cloud returns it.

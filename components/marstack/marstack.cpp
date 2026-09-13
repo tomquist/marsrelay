@@ -247,7 +247,21 @@ std::string data_upload_device_id(const std::string &url) {
   return url.substr(prefix.size());
 }
 
-bool is_time_path(const std::string &url) { return url.find("/getDateInfo") != std::string::npos; }
+bool is_time_path(const std::string &url) {
+  // Firmware has spelled this endpoint several ways ("getDateInfoeu.php",
+  // "getDateInfo.php"), and a region suffix may well appear in another, so
+  // match the stem rather than an exact name. Anchor it to the last path
+  // segment and require an extension after the stem, so an unrelated path such
+  // as "/custom/getDateInformation" is left to the rest of the web server.
+  const size_t segment = url.rfind('/');
+  const std::string name = segment == std::string::npos ? url : url.substr(segment + 1);
+  static const std::string stem = "getDateInfo";
+  if (name.compare(0, stem.size(), stem) != 0) {
+    return false;
+  }
+  const std::string rest = name.substr(stem.size());
+  return rest.empty() || rest.find('.') != std::string::npos;
+}
 
 std::string decode_venus_telemetry(const std::string &body) {
   if (body.empty()) {
@@ -352,8 +366,12 @@ std::string Marstack::formatted_date_string_() const {
 void Marstack::dispatch(const Request &req, Response &res) {
   ESP_LOGD(TAG, "%s %s from %s (body %zu bytes)", req.method.c_str(), req.url.c_str(), req.source_ip.c_str(),
            req.body.size());
+  // The body is external input: it can carry newlines that forge log lines,
+  // and a telemetry upload is kilobytes of it every few minutes. Keep it out of
+  // the default log level -- `on_request` already hands it to automations for
+  // anyone who wants it.
   if (!req.body.empty()) {
-    ESP_LOGD(TAG, "%s %s body: %s", req.method.c_str(), req.url.c_str(), req.body.c_str());
+    ESP_LOGV(TAG, "%s %s body: %s", req.method.c_str(), req.url.c_str(), req.body.c_str());
   }
 
   for (auto *trigger : this->request_triggers_) {
@@ -384,7 +402,13 @@ void Marstack::dispatch(const Request &req, Response &res) {
 
   if (req.method == "POST" && is_data_upload_path(req.url)) {
     const std::string device_id = data_upload_device_id(req.url);
-    if (!this->venus_upload_triggers_.empty()) {
+    if (!req.body_complete) {
+      // Decoding half a record would publish wrong values under the device's
+      // own name, which is worse than publishing none. Answer anyway: the
+      // acknowledgement is what keeps the battery from resetting itself, and
+      // the real cloud would have accepted this upload too.
+      ESP_LOGW(TAG, "Upload from %s was not received whole; answering it but not decoding it", device_id.c_str());
+    } else if (!this->venus_upload_triggers_.empty()) {
       const std::string telemetry = decode_venus_telemetry(req.body);
       if (telemetry.empty()) {
         ESP_LOGW(TAG, "Telemetry upload from %s carried no 'd' field", device_id.c_str());
