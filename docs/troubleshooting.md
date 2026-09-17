@@ -65,11 +65,12 @@ Note that this does not remove *every* interruption. Since v150 each upload runs
 If the log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable to accept new connection, system socket count has been exceeded`, first update to the latest `main` — earlier versions of the embedded broker had crash bugs that have been fixed. Beyond that:
 
 - Some users report better long-term stability with `CONFIG_LWIP_MAX_SOCKETS: "32"` and `CONFIG_LWIP_SOCKET_OFFSET: "16"` in the `sdkconfig_options`.
+- Since a build from `main`, a broker that exits on its own is started again automatically (the log says `Broker task exited on its own; restarting it in ... ms`). Before that it stayed down until the next reboot, which is one way the symptom below could be reached. Seeing that line repeatedly means the broker keeps dying — the settings in this list still apply.
 - A power cycle of the ESP32 restores communication as a stopgap.
 - The log line `TLS client: certificate verification relaxed (CN check disabled, ...)` is expected with `tls_skip_verification: true` and is not an error.
 - If crashes persist, double-check the `psram` settings match your board, and consider a standard ESP32-S3 devkit board.
 
-Long-running dropouts where MQTT and UDP stop together while WiFi stays up are still being investigated in [issue #10](https://github.com/tomquist/marsrelay/issues/10).
+Long-running dropouts where MQTT and UDP stop together while WiFi stays up are still being investigated in [issue #10](https://github.com/tomquist/marsrelay/issues/10). The UDP proxy also retries its own start now, so a proxy whose sockets never came up no longer needs a reboot either.
 
 ## The battery can't reach a power meter on my home network (e.g. EcoTracker)
 

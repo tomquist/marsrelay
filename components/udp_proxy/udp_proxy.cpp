@@ -9,6 +9,7 @@
 #include <lwip/netdb.h>
 #include <lwip/igmp.h>
 #include <esp_netif.h>
+#include <algorithm>
 #include <cstring>
 
 namespace esphome {
@@ -18,6 +19,7 @@ static const char *const TAG = "udp_proxy";
 
 void UdpProxy::setup() {
   this->start();
+  this->last_start_attempt_ = millis();
 }
 
 float UdpProxy::get_setup_priority() const {
@@ -162,7 +164,13 @@ void UdpProxy::stop() {
 
 void UdpProxy::loop() {
   if (!this->active_) {
-    return;
+    // setup() runs before the network is necessarily up, and a bind can fail
+    // for reasons that pass. Without this the proxy would stay down until the
+    // next reboot, with nothing but one log line to say so.
+    this->retry_start();
+    if (!this->active_) {
+      return;
+    }
   }
 
   // Process incoming packets on both sockets
@@ -174,6 +182,22 @@ void UdpProxy::loop() {
   if (now - this->last_cleanup_ > 5000) {
     this->cleanup_expired_sessions();
     this->last_cleanup_ = now;
+  }
+}
+
+void UdpProxy::retry_start() {
+  const uint32_t now = millis();
+  if (now - this->last_start_attempt_ < this->start_retry_delay_ms_) {
+    return;
+  }
+  this->last_start_attempt_ = now;
+  this->start();
+  if (this->active_) {
+    this->start_retry_delay_ms_ = START_RETRY_MIN_MS;
+  } else {
+    // start() has already logged why. Back off so a proxy that cannot bind at
+    // all does not fill the log with the same line every five seconds.
+    this->start_retry_delay_ms_ = std::min<uint32_t>(this->start_retry_delay_ms_ * 2, START_RETRY_MAX_MS);
   }
 }
 
@@ -219,8 +243,12 @@ void UdpProxy::process_ap_socket() {
   // Check if this is from the AP network (our target)
   if (!this->is_ap_network(src_ip)) {
     ESP_LOGV(TAG, "Ignoring packet from non-AP network");
+    this->packets_dropped_++;
     return;
   }
+
+  this->last_request_ = millis();
+  this->has_request_ = true;
 
   // Store/update session for this client
   // Key by source port since that's what we need to route responses back to
@@ -235,6 +263,7 @@ void UdpProxy::process_ap_socket() {
   // Forward to STA network as broadcast
   if (this->sta_socket_ == nullptr) {
     ESP_LOGW(TAG, "STA socket not available, cannot forward");
+    this->packets_dropped_++;
     return;
   }
 
@@ -250,8 +279,10 @@ void UdpProxy::process_ap_socket() {
 
   if (sent < 0) {
     ESP_LOGE(TAG, "Failed to forward to STA network: %d (%s)", errno, strerror(errno));
+    this->packets_dropped_++;
   } else {
     ESP_LOGD(TAG, "Forwarded %zd bytes to STA network broadcast", sent);
+    this->packets_to_sta_++;
   }
 }
 
@@ -294,14 +325,19 @@ void UdpProxy::process_sta_socket() {
   char src_ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
   ESP_LOGD(TAG, "Received %zd bytes on STA socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
 
+  this->last_response_ = millis();
+  this->has_response_ = true;
+
   // Forward response to all active AP clients
   if (this->sessions_.empty()) {
     ESP_LOGV(TAG, "No active sessions, dropping response");
+    this->packets_dropped_++;
     return;
   }
 
   if (this->ap_socket_ == nullptr) {
     ESP_LOGW(TAG, "AP socket not available, cannot forward response");
+    this->packets_dropped_++;
     return;
   }
 
@@ -326,8 +362,10 @@ void UdpProxy::process_sta_socket() {
 
     if (sent < 0) {
       ESP_LOGE(TAG, "Failed to forward to AP client: %d (%s)", errno, strerror(errno));
+      this->packets_dropped_++;
     } else {
       forwarded_count++;
+      this->packets_to_ap_++;
       // Update session activity
       session.last_activity = millis();
     }

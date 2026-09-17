@@ -77,6 +77,18 @@ class Marstack : public Component, public AsyncWebHandler {
   std::string build_raw_response(const Response &res) const;
   bool raw_responses() const { return this->raw_responses_; }
 
+  /// Requests answered on either transport. The battery polls the clock
+  /// endpoint on a schedule of its own, so this keeps counting even when its
+  /// MQTT connection is gone -- which is what tells the two apart.
+  uint32_t request_count() const { return this->request_count_; }
+  /// Telemetry uploads answered (Venus on control firmware v150 and up).
+  uint32_t venus_upload_count() const { return this->venus_upload_count_; }
+  /// Whether any request has arrived since boot. Guards last_request(), which
+  /// is meaningless before the first one.
+  bool has_request() const { return this->has_request_; }
+  /// millis() when the last request arrived.
+  uint32_t last_request() const { return this->last_request_; }
+
   void setup() override {
     this->base_->init();
     this->base_->add_handler(this);
@@ -96,6 +108,12 @@ class Marstack : public Component, public AsyncWebHandler {
   std::string time_suffix_{"04_0_0_0"};
   bool raw_responses_{true};
   bool accept_all_{false};
+  // Both transports dispatch on the ESPHome loop task (the TLS listener hands
+  // its parsed requests over through a queue), so these need no locking.
+  uint32_t request_count_{0};
+  uint32_t venus_upload_count_{0};
+  uint32_t last_request_{0};
+  bool has_request_{false};
 };
 
 /// True for "/data-upload/v1/venus/<id>": the battery appends its device id as

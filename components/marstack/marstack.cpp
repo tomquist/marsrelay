@@ -11,6 +11,7 @@
 
 #include "esphome/components/json/json_util.h"
 #include "esphome/components/network/ip_address.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
@@ -364,6 +365,10 @@ std::string Marstack::formatted_date_string_() const {
 }
 
 void Marstack::dispatch(const Request &req, Response &res) {
+  this->request_count_++;
+  this->last_request_ = millis();
+  this->has_request_ = true;
+
   ESP_LOGD(TAG, "%s %s from %s (body %zu bytes)", req.method.c_str(), req.url.c_str(), req.source_ip.c_str(),
            req.body.size());
   // The body is external input: it can carry newlines that forge log lines,
@@ -411,6 +416,9 @@ void Marstack::dispatch(const Request &req, Response &res) {
 
   if (req.method == "POST" && is_data_upload_path(req.url)) {
     const std::string device_id = data_upload_device_id(req.url);
+    // Counted whether or not the body arrived whole: the point of this
+    // endpoint is the acknowledgement, which the battery gets either way.
+    this->venus_upload_count_++;
     if (!req.body_complete) {
       // Decoding half a record would publish wrong values under the device's
       // own name, which is worse than publishing none. Answer anyway: the

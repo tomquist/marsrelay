@@ -34,7 +34,29 @@ class UdpProxy : public Component {
 
   void start();
   void stop();
+  /// True once both sockets are bound. A proxy whose bind failed -- or that
+  /// came up before the network did -- reports false here until a retry gets
+  /// it running.
   bool is_active() const { return this->active_; }
+
+  /// Packets forwarded from the battery's network to the home network, i.e.
+  /// the meter discovery requests the battery sends.
+  uint32_t packets_to_sta() const { return this->packets_to_sta_; }
+  /// Packets forwarded back from the home network to the battery, i.e. the
+  /// meter's answers.
+  uint32_t packets_to_ap() const { return this->packets_to_ap_; }
+  /// Packets received but not forwarded: from outside the AP subnet, with no
+  /// session to answer, or whose forward failed.
+  uint32_t packets_dropped() const { return this->packets_dropped_; }
+  /// Clients with a session that has not timed out yet.
+  size_t session_count() const { return this->sessions_.size(); }
+  /// Whether a request/response has been seen at all since boot. Guards the
+  /// timestamps below, which are meaningless before the first one.
+  bool has_request() const { return this->has_request_; }
+  bool has_response() const { return this->has_response_; }
+  /// millis() of the last packet in either direction.
+  uint32_t last_request() const { return this->last_request_; }
+  uint32_t last_response() const { return this->last_response_; }
 
  protected:
   /// Process incoming packets on the AP-side socket
@@ -45,6 +67,9 @@ class UdpProxy : public Component {
 
   /// Clean up expired sessions
   void cleanup_expired_sessions();
+
+  /// Try start() again, with a growing delay, while the proxy is not active.
+  void retry_start();
 
   /// Check if an IP address belongs to the AP subnet
   bool is_ap_network(const network::IPAddress &ip);
@@ -57,6 +82,10 @@ class UdpProxy : public Component {
 
   /// Buffer size for UDP packets
   static constexpr size_t UDP_BUFFER_SIZE = 1500;
+
+  /// Bounds for the delay between start() attempts
+  static constexpr uint32_t START_RETRY_MIN_MS = 5000;
+  static constexpr uint32_t START_RETRY_MAX_MS = 60000;
 
   /// Target port to listen on and forward to
   uint16_t port_{0};
@@ -83,6 +112,19 @@ class UdpProxy : public Component {
 
   /// Counter for cleanup cycle
   uint32_t last_cleanup_{0};
+
+  /// When start() was last attempted, and how long to wait before trying again
+  uint32_t last_start_attempt_{0};
+  uint32_t start_retry_delay_ms_{START_RETRY_MIN_MS};
+
+  /// Traffic counters, exposed for diagnostics
+  uint32_t packets_to_sta_{0};
+  uint32_t packets_to_ap_{0};
+  uint32_t packets_dropped_{0};
+  uint32_t last_request_{0};
+  uint32_t last_response_{0};
+  bool has_request_{false};
+  bool has_response_{false};
 };
 
 }  // namespace udp_proxy
