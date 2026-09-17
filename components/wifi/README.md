@@ -55,15 +55,17 @@ scripts/update-wifi.sh 2026.X.Y
 The script:
 
 1. Downloads the pristine upstream `wifi` component at `2026.X.Y` and commits it
-   as a **vendor import** (`vendor: import pristine esphome wifi 2026.X.Y`). That
-   commit becomes the merge base the *next* update merges against, so it has to
-   land in history.
-2. Re-applies [`patches/marsrelay-ap-sta.patch`](./patches/marsrelay-ap-sta.patch)
-   with `git apply --3way`. Because the patch records its base blob (the previous
-   vendor import), git does a true three-way merge: where upstream rewrote a
-   patched region you get **standard conflict markers** to resolve, not a silent
-   mis-apply.
-3. Regenerates the patch against the new base, bumps `UPSTREAM_VERSION` and the
+   as a **vendor import** (`vendor: import pristine esphome wifi 2026.X.Y`), so
+   the re-apply below lands as an ordinary diff against pristine upstream.
+2. Re-creates the patch's **merge base** -- `wifi_component.cpp` as pristine
+   upstream had it at the *previous* pin -- by downloading it and writing it into
+   the object database with `git hash-object -w`, checking it hashes to the
+   left-hand side of the patch's own `index <old>..<new>` header.
+3. Re-applies [`patches/marsrelay-ap-sta.patch`](./patches/marsrelay-ap-sta.patch)
+   with `git apply --3way`. With the base present git does a true three-way merge:
+   where upstream rewrote a patched region you get **standard conflict markers**
+   to resolve, not a silent mis-apply.
+4. Regenerates the patch against the new base, bumps `UPSTREAM_VERSION` and the
    **Current base** above, then runs `scripts/check-wifi-fork.sh` to prove the
    result is exactly upstream + patch. CI reads its `esphome_version` from
    `UPSTREAM_VERSION`, so no workflow file needs editing on a bump.
@@ -84,6 +86,16 @@ git add -A && git commit -m "Re-apply marsrelay patch on esphome wifi 2026.X.Y"
 > conflict rather than applying in the wrong place. The CI check
 > (`scripts/check-wifi-fork.sh`, workflow `wifi-fork-check`) is the backstop that
 > fails the build if the vendored tree ever drifts from "upstream + patch".
+>
+> Why step 2 downloads the base instead of reading it out of git: the vendor
+> import commit holds that blob, but update PRs are squash-merged, so it never
+> reaches the default branch. Without it `git apply --3way` prints `repository
+> lacks the necessary blob` and quietly degrades to a plain `git apply` -- which
+> succeeds whenever upstream left the patched context alone, and on failure
+> leaves `wifi_component.cpp` **unmodified**, with no conflict markers to resolve.
+> Re-fetching the base makes the merge work the same way on any checkout. If it
+> is ever unavailable the script says so and refuses to pretend there is
+> something to resolve.
 
 ## Staying up to date automatically
 
