@@ -1,11 +1,11 @@
 diff --git a/components/wifi/wifi_component.cpp b/components/wifi/wifi_component.cpp
-index 3a42ace..de4019c 100644
+index f290832..3b6e0c8 100644
 --- a/components/wifi/wifi_component.cpp
 +++ b/components/wifi/wifi_component.cpp
-@@ -857,18 +857,18 @@ void WiFiComponent::loop() {
- 
- #ifdef USE_WIFI_AP
-     if (this->has_ap() && !this->ap_setup_) {
+@@ -878,18 +878,18 @@ void WiFiComponent::loop() {
+         provisioning::global_provisioning_manager != nullptr && provisioning::global_provisioning_manager->closed();
+ #endif
+     if (this->has_ap() && !this->ap_setup_ && !provisioning_closed) {
 -      if (this->ap_timeout_ != 0 && (now - this->last_connected_ > this->ap_timeout_)) {
 -        ESP_LOGI(TAG, "Starting fallback AP");
 -        this->setup_ap_config_();
@@ -31,7 +31,7 @@ index 3a42ace..de4019c 100644
      }
  #endif  // USE_WIFI_AP
  
-@@ -1623,8 +1623,9 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
+@@ -1640,8 +1640,9 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
          captive_portal::global_captive_portal->end();
        }
  #endif
