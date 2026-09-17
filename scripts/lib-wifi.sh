@@ -74,12 +74,21 @@ for e in json.load(sys.stdin):
 # upstream set), it just isn't silently written over here.
 wifi_download_upstream() {  # wifi_download_upstream <ref> <dest>
   local ref="$1" dest="$2" rel
-  local base="https://raw.githubusercontent.com/esphome/esphome/${ref}/${WIFI_UPSTREAM_PATH}"
   while IFS= read -r rel; do
     wifi_is_local_path "$rel" && continue
     mkdir -p "$dest/$(dirname "$rel")"
-    _wifi_curl "${base}/${rel}" -o "$dest/$rel"
+    wifi_download_upstream_file "$ref" "$rel" "$dest/$rel"
   done < <(wifi_upstream_files "$ref")
+}
+
+# Download a single component file at a ref to <dest-file>. Unlike
+# wifi_download_upstream this needs no directory listing, so it works off
+# raw.githubusercontent.com alone. Used by scripts/update-wifi.sh to reconstruct
+# the patch's merge base.
+wifi_download_upstream_file() {  # wifi_download_upstream_file <ref> <rel> <dest-file>
+  local ref="$1" rel="$2" dest="$3"
+  _wifi_curl "https://raw.githubusercontent.com/esphome/esphome/${ref}/${WIFI_UPSTREAM_PATH}/${rel}" \
+    -o "$dest"
 }
 
 # List the tracked vendored upstream files (paths relative to the component dir),
