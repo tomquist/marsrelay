@@ -2,6 +2,7 @@
 
 #ifdef USE_NETWORK
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -362,6 +363,40 @@ std::string Marstack::formatted_date_string_() const {
   snprintf(buffer, sizeof(buffer), "_%04d_%02d_%02d_%02d_%02d_%02d_", timeinfo.tm_year + 1900, timeinfo.tm_mon + 1,
            timeinfo.tm_mday, timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
   return std::string(buffer) + this->time_suffix_;
+}
+
+void Marstack::loop() {
+  const uint32_t now = millis();
+  if (now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
+    this->last_diagnostics_ = now;
+    this->diagnostics_started_ = true;
+    this->publish_diagnostics_();
+  }
+}
+
+void Marstack::publish_diagnostics_() {
+#ifdef USE_BINARY_SENSOR
+  if (this->device_active_binary_sensor_ != nullptr) {
+    const bool active =
+        this->has_request_ && millis() - this->last_request_ < this->device_active_timeout_ms_;
+    this->device_active_binary_sensor_->publish_state(active);
+  }
+#endif
+
+#ifdef USE_SENSOR
+  if (this->requests_sensor_ != nullptr) {
+    this->requests_sensor_->publish_state((float) this->request_count_);
+  }
+  if (this->venus_uploads_sensor_ != nullptr) {
+    this->venus_uploads_sensor_->publish_state((float) this->venus_upload_count_);
+  }
+  if (this->request_age_sensor_ != nullptr) {
+    // NAN until the battery has asked for something: "nothing yet" is not the
+    // same as "the last request was 0 seconds ago".
+    this->request_age_sensor_->publish_state(this->has_request_ ? (millis() - this->last_request_) / 1000.0f
+                                                                : NAN);
+  }
+#endif
 }
 
 void Marstack::dispatch(const Request &req, Response &res) {

@@ -6,6 +6,13 @@
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 
+#ifdef USE_BINARY_SENSOR
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#endif
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
+
 #include <string>
 #include <vector>
 
@@ -89,15 +96,34 @@ class Marstack : public Component, public AsyncWebHandler {
   /// millis() when the last request arrived.
   uint32_t last_request() const { return this->last_request_; }
 
+  /// How often the diagnostic entities below are refreshed.
+  void set_diagnostics_interval(uint32_t interval_ms) { this->diagnostics_interval_ms_ = interval_ms; }
+
+#ifdef USE_BINARY_SENSOR
+  SUB_BINARY_SENSOR(device_active)
+  /// How long the battery may go without a request before `device_active` goes
+  /// off. It polls the clock endpoint on a schedule of its own, so this is a
+  /// coarser signal than the MQTT one.
+  void set_device_active_timeout(uint32_t timeout_ms) { this->device_active_timeout_ms_ = timeout_ms; }
+#endif
+
+#ifdef USE_SENSOR
+  SUB_SENSOR(requests)
+  SUB_SENSOR(venus_uploads)
+  SUB_SENSOR(request_age)
+#endif
+
   void setup() override {
     this->base_->init();
     this->base_->add_handler(this);
   }
+  void loop() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::WIFI - 1.0f; }
 
  protected:
   std::string formatted_date_string_() const;
+  void publish_diagnostics_();
 
   web_server_base::WebServerBase *base_;
   std::vector<MarstackRequestTrigger *> request_triggers_;
@@ -114,6 +140,12 @@ class Marstack : public Component, public AsyncWebHandler {
   uint32_t venus_upload_count_{0};
   uint32_t last_request_{0};
   bool has_request_{false};
+  uint32_t diagnostics_interval_ms_{60000};
+  uint32_t last_diagnostics_{0};
+  bool diagnostics_started_{false};
+#ifdef USE_BINARY_SENSOR
+  uint32_t device_active_timeout_ms_{1800000};
+#endif
 };
 
 /// True for "/data-upload/v1/venus/<id>": the battery appends its device id as

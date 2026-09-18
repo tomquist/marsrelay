@@ -64,6 +64,7 @@ Note that this does not remove *every* interruption. Since v150 each upload runs
 
 If the log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable to accept new connection, system socket count has been exceeded`, first update to the latest `main` — earlier versions of the embedded broker had crash bugs that have been fixed. Beyond that:
 
+- The [diagnostic entities](../README.md#diagnostics) say which half stopped: `Local broker running` and `Broker restarts` for the broker itself, `Battery MQTT data` against `Battery HTTP requests` for whether the battery is still reaching Marsrelay at all.
 - Some users report better long-term stability with `CONFIG_LWIP_MAX_SOCKETS: "32"` and `CONFIG_LWIP_SOCKET_OFFSET: "16"` in the `sdkconfig_options`.
 - Since a build from `main`, a broker that exits on its own is started again automatically (the log says `Broker task exited on its own; restarting it in ... ms`). Before that it stayed down until the next reboot, which is one way the symptom below could be reached. Seeing that line repeatedly means the broker keeps dying — the settings in this list still apply.
 - A power cycle of the ESP32 restores communication as a stopgap.

@@ -11,6 +11,8 @@ from esphome.const import CONF_ID, CONF_PORT, CONF_TRIGGER_ID
 CODEOWNERS = ["@marsrelay"]
 DEPENDENCIES = ["esp32"]
 
+CONF_MOSQUITTO_BROKER_ID = "mosquitto_broker_id"
+CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
 CONF_ON_MESSAGE = "on_message"
 CONF_MAX_CLIENTS = "max_clients"
 CONF_TLS = "tls"
@@ -131,6 +133,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_TLS_SKIP_VERIFICATION, default=False): cv.boolean,
             cv.Optional(CONF_PORT): cv.port,  # Default will be set based on TLS
             cv.Optional(CONF_MAX_CLIENTS, default=10): cv.int_range(min=1, max=100),
+            cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
             cv.Optional(CONF_ON_MESSAGE): automation.validate_automation(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MosquittoMessageTrigger),
@@ -168,6 +171,11 @@ async def to_code(config):
     cg.add(var.set_port(port))
     
     cg.add(var.set_max_clients(config[CONF_MAX_CLIENTS]))
+    cg.add(
+        var.set_diagnostics_interval(
+            config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds
+        )
+    )
 
     esp32.add_idf_component(name="espressif/mosquitto", ref="2.0.20")
 

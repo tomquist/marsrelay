@@ -11,6 +11,8 @@ from esphome.core import CORE
 import esphome.final_validate as fv
 from esphome.types import ConfigType
 
+CONF_MARSTACK_ID = "marstack_id"
+CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
 CONF_ON_REQUEST = "on_request"
 CONF_ON_VENUS_UPLOAD = "on_venus_upload"
 CONF_RAW_RESPONSES = "raw_responses"
@@ -77,6 +79,7 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_RAW_RESPONSES, default=True): cv.boolean,
         cv.Optional(CONF_TIME_SUFFIX, default="04_0_0_0"): cv.string_strict,
+        cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
         cv.Optional(CONF_HTTPS): HTTPS_SCHEMA,
         cv.Optional(CONF_ON_REQUEST): automation.validate_automation(
             {
@@ -135,6 +138,11 @@ async def to_code(config):
 
     cg.add(var.set_raw_responses(config[CONF_RAW_RESPONSES]))
     cg.add(var.set_time_suffix(config[CONF_TIME_SUFFIX]))
+    cg.add(
+        var.set_diagnostics_interval(
+            config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds
+        )
+    )
 
     for conf in config.get(CONF_ON_REQUEST, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)

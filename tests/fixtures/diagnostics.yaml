@@ -1,0 +1,103 @@
+# Every diagnostic entity the three components expose, so codegen for all of
+# them is covered. A real config picks the handful it wants.
+esphome:
+  name: test-diagnostics
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+wifi:
+  ssid: "test"
+  password: "testpass"
+  ap:
+    ssid: "fallback"
+    password: "fallbackpass"
+
+logger:
+
+mqtt:
+  broker: 127.0.0.1
+  username: "user"
+  password: "pass"
+
+web_server:
+  port: 80
+  version: 3
+
+udp_proxy:
+  - id: meter_proxy
+    port: 1010
+    diagnostics_interval: 30s
+
+mosquitto_broker:
+  id: local_broker
+  tls: false
+  port: 1883
+  diagnostics_interval: 30s
+
+marstack:
+  id: marstack_http
+  diagnostics_interval: 30s
+
+binary_sensor:
+  - platform: mosquitto_broker
+    running:
+      name: "Local broker running"
+    device_active:
+      name: "Battery MQTT data"
+      timeout: 20min
+    publish_client_connected:
+      name: "Broker publish client"
+  - platform: udp_proxy
+    udp_proxy_id: meter_proxy
+    active:
+      name: "UDP proxy active"
+    meter_responding:
+      name: "Power meter responding"
+      timeout: 2min
+  - platform: marstack
+    device_active:
+      name: "Battery HTTP requests"
+      timeout: 45min
+
+sensor:
+  - platform: mosquitto_broker
+    device_messages:
+      name: "Battery messages"
+    app_messages:
+      name: "Commands relayed"
+    publish_errors:
+      name: "Broker publish errors"
+    broker_restarts:
+      name: "Broker restarts"
+    device_message_age:
+      name: "Last battery message"
+  - platform: udp_proxy
+    udp_proxy_id: meter_proxy
+    packets_to_sta:
+      name: "Meter requests forwarded"
+    packets_to_ap:
+      name: "Meter answers forwarded"
+    packets_dropped:
+      name: "UDP packets dropped"
+    sessions:
+      name: "UDP sessions"
+    request_age:
+      name: "Last meter request"
+    response_age:
+      name: "Last meter answer"
+  - platform: marstack
+    requests:
+      name: "Cloud requests answered"
+    venus_uploads:
+      name: "Venus uploads answered"
+    request_age:
+      name: "Last cloud request"

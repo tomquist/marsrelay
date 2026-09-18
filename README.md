@@ -213,9 +213,84 @@ shelly_emulator:
     - grid_power_w
 ```
 
+## Diagnostics
+
+Marsrelay's failure mode is quiet: WiFi stays up, the web server answers, the
+relay pings — and the battery's data simply stops arriving. These entities are
+what tell a working relay from a silent one.
+
+They are all `entity_category: diagnostic`, so Home Assistant files them under
+the device's diagnostics rather than on a dashboard, and every one is optional.
+[`marsrelay_esp32s3.yaml`](marsrelay_esp32s3.yaml) enables a useful subset;
+delete what you don't want, or add from the full list below.
+
+```yaml
+binary_sensor:
+  - platform: mosquitto_broker
+    mosquitto_broker_id: local_broker
+    device_active:
+      name: "Battery MQTT data"
+      timeout: 15min      # how long the battery may stay silent
+
+sensor:
+  - platform: udp_proxy
+    udp_proxy_id: meter_proxy
+    packets_to_sta:
+      name: "Meter requests forwarded"
+```
+
+| Entity | Platform | What it reports |
+|---|---|---|
+| `running` | `mosquitto_broker` | the embedded broker task is alive |
+| `device_active` | `mosquitto_broker` | the battery published on a `.../device/...` topic within `timeout` (default `15min`) |
+| `publish_client_connected` | `mosquitto_broker` | the internal client that relays commands to the battery is connected |
+| `device_messages` / `app_messages` | `mosquitto_broker` | messages counted from the battery / relayed towards it |
+| `publish_errors` / `broker_restarts` | `mosquitto_broker` | publishes that never landed, and how often the broker had to be restarted |
+| `device_message_age` | `mosquitto_broker` | seconds since the last battery message |
+| `active` | `udp_proxy` | both sockets are bound |
+| `meter_responding` | `udp_proxy` | the power meter answered within `timeout` (default `5min`) |
+| `packets_to_sta` / `packets_to_ap` | `udp_proxy` | meter traffic forwarded each way |
+| `packets_dropped` / `sessions` | `udp_proxy` | packets not forwarded, and clients with a live session |
+| `request_age` / `response_age` | `udp_proxy` | seconds since the last packet each way |
+| `device_active` | `marstack` | the battery called a cloud endpoint within `timeout` (default `30min`) |
+| `requests` / `venus_uploads` | `marstack` | cloud requests and telemetry uploads answered |
+| `request_age` | `marstack` | seconds since the last cloud request |
+
+Each component refreshes its own entities every `diagnostics_interval`
+(default `60s`, settable on `mosquitto_broker:`, `udp_proxy:` and `marstack:`).
+The counters reset on reboot, which is what `total_increasing` is for; the
+`*_age` sensors read *unknown* until the first message of that kind arrives.
+
+### Reading them
+
+- **Battery MQTT data off, Battery HTTP requests on** — the battery is alive and
+  still reaching Marsrelay, but its MQTT session is gone. This is the shape of
+  [issue #10](https://github.com/tomquist/marsrelay/issues/10); check
+  `Local broker running` and `Broker restarts` next.
+- **Both off** — the battery is not reaching Marsrelay at all. Check that it is
+  still on the access point, and power-cycle it (see
+  [step 3](#3-find-your-device-information)).
+- **Local broker running off** — the embedded broker exited. It restarts itself
+  now, so this should come back within a minute; `Broker restarts` climbing
+  steadily means it keeps dying, which
+  [troubleshooting](docs/troubleshooting.md#communication-stops-after-a-few-hours-or-the-log-shows-broker-crashes)
+  covers.
+- **Broker publish errors climbing** — commands from hm2mqtt are reaching
+  Marsrelay but not the battery.
+- **Power meter responding off while UDP proxy active is on** — the proxy is
+  working and nothing on your home network answered; that is a meter problem,
+  not a relay one. `Meter requests forwarded` still climbing confirms the
+  battery is asking.
+
+Because these are ordinary Home Assistant entities, an automation can act on
+them — for example, sending the battery a command through hm2mqtt when
+`Battery MQTT data` has been off for a while.
+
 ## Troubleshooting
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) for:
+Start with the [diagnostic entities](#diagnostics) — they narrow down which
+half of the relay stopped before you go log-diving. Then see
+[docs/troubleshooting.md](docs/troubleshooting.md) for:
 
 - [The battery doesn't react to commands (e.g. cd=1)](docs/troubleshooting.md#the-battery-doesnt-react-to-commands-eg-cd1)
 - [No /device/ topic ever appears](docs/troubleshooting.md#no-device-topic-ever-appears)
