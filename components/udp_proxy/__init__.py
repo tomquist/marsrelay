@@ -25,6 +25,8 @@ CODEOWNERS = ["@marsrelay"]
 MULTI_CONF = True
 
 CONF_SESSION_TIMEOUT = "session_timeout"
+CONF_UDP_PROXY_ID = "udp_proxy_id"
+CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
 
 udp_proxy_ns = cg.esphome_ns.namespace("udp_proxy")
 UdpProxy = udp_proxy_ns.class_("UdpProxy", cg.Component)
@@ -35,6 +37,7 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(): cv.declare_id(UdpProxy),
             cv.Required(CONF_PORT): cv.port,
             cv.Optional(CONF_SESSION_TIMEOUT, default="30s"): cv.positive_time_period_milliseconds,
+            cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on([PLATFORM_ESP32]),
@@ -80,6 +83,7 @@ async def to_code(config):
 
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_session_timeout(config[CONF_SESSION_TIMEOUT]))
+    cg.add(var.set_diagnostics_interval(config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds))
 
 
 FILTER_SOURCE_FILES = filter_source_files_from_platform(

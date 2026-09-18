@@ -8,8 +8,16 @@
 
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
+#include "esphome/core/defines.h"
 #include "esphome/components/mqtt/mqtt_backend_esp32.h"
 #include "esphome/components/mqtt/mqtt_client.h"
+
+#ifdef USE_BINARY_SENSOR
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#endif
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
 
 extern "C" {
 #include "mosq_broker.h"
@@ -87,6 +95,25 @@ class MosquittoBroker : public Component {
     this->id_mappings_.push_back(IdMapping{device, external, external_encrypted});
   }
 
+  /// How often the diagnostic entities below are refreshed.
+  void set_diagnostics_interval(uint32_t interval_ms) { this->diagnostics_interval_ms_ = interval_ms; }
+
+#ifdef USE_BINARY_SENSOR
+  SUB_BINARY_SENSOR(running)
+  SUB_BINARY_SENSOR(device_active)
+  SUB_BINARY_SENSOR(publish_client_connected)
+  /// How long the battery may stay silent before `device_active` goes off.
+  void set_device_active_timeout(uint32_t timeout_ms) { this->device_active_timeout_ms_ = timeout_ms; }
+#endif
+
+#ifdef USE_SENSOR
+  SUB_SENSOR(device_messages)
+  SUB_SENSOR(app_messages)
+  SUB_SENSOR(publish_errors)
+  SUB_SENSOR(broker_restarts)
+  SUB_SENSOR(device_message_age)
+#endif
+
  protected:
   static void broker_task_(void *param);
   static void on_broker_message_callback(char *client, char *topic, char *data, int len, int qos, int retain);
@@ -94,6 +121,7 @@ class MosquittoBroker : public Component {
   void handle_message_(char *topic, char *data, int len);
   void ensure_publish_client_();
   void teardown_publish_client_();
+  void publish_diagnostics_();
   std::string translate_external_to_device_(const std::string &topic) const;
   std::string translate_device_to_external_(const std::string &topic) const;
 
@@ -110,6 +138,12 @@ class MosquittoBroker : public Component {
   /// restart and is reset once the broker accepts a client again.
   uint32_t broker_start_delay_{1000};
   uint32_t broker_restarts_{0};
+  uint32_t diagnostics_interval_ms_{60000};
+  uint32_t last_diagnostics_{0};
+  bool diagnostics_started_{false};
+#ifdef USE_BINARY_SENSOR
+  uint32_t device_active_timeout_ms_{900000};
+#endif
   mqtt::MQTTClientState publish_state_{mqtt::MQTT_CLIENT_DISCONNECTED};
   uint32_t connect_begin_{0};
   esp_mqtt_client_handle_t esp_mqtt_client_{nullptr};

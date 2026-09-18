@@ -10,6 +10,7 @@
 #include <lwip/igmp.h>
 #include <esp_netif.h>
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace esphome {
@@ -163,14 +164,27 @@ void UdpProxy::stop() {
 }
 
 void UdpProxy::loop() {
+  const uint32_t now = millis();
+
   if (!this->active_) {
     // setup() runs before the network is necessarily up, and a bind can fail
     // for reasons that pass. Without this the proxy would stay down until the
     // next reboot, with nothing but one log line to say so.
     this->retry_start();
-    if (!this->active_) {
-      return;
-    }
+  }
+
+  // After the retry above, so a recovery shows up in the entities right away,
+  // and ahead of the return below, so a proxy that is still down publishes
+  // that.
+  if (this->diagnostics_interval_ms_ != SCHEDULER_DONT_RUN &&  // `never`
+      now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
+    this->last_diagnostics_ = now;
+    this->diagnostics_started_ = true;
+    this->publish_diagnostics();
+  }
+
+  if (!this->active_) {
+    return;
   }
 
   // Process incoming packets on both sockets
@@ -178,11 +192,47 @@ void UdpProxy::loop() {
   this->process_sta_socket();
 
   // Cleanup expired sessions periodically (every 5 seconds)
-  uint32_t now = millis();
   if (now - this->last_cleanup_ > 5000) {
     this->cleanup_expired_sessions();
     this->last_cleanup_ = now;
   }
+}
+
+void UdpProxy::publish_diagnostics() {
+#ifdef USE_BINARY_SENSOR
+  if (this->active_binary_sensor_ != nullptr) {
+    this->active_binary_sensor_->publish_state(this->active_);
+  }
+  if (this->meter_responding_binary_sensor_ != nullptr) {
+    const bool responding =
+        this->has_response_ && millis() - this->last_response_ < this->meter_timeout_ms_;
+    this->meter_responding_binary_sensor_->publish_state(responding);
+  }
+#endif
+
+#ifdef USE_SENSOR
+  if (this->packets_to_sta_sensor_ != nullptr) {
+    this->packets_to_sta_sensor_->publish_state((float) this->packets_to_sta_);
+  }
+  if (this->packets_to_ap_sensor_ != nullptr) {
+    this->packets_to_ap_sensor_->publish_state((float) this->packets_to_ap_);
+  }
+  if (this->packets_dropped_sensor_ != nullptr) {
+    this->packets_dropped_sensor_->publish_state((float) this->packets_dropped_);
+  }
+  if (this->sessions_sensor_ != nullptr) {
+    this->sessions_sensor_->publish_state((float) this->sessions_.size());
+  }
+  // NAN until the first packet of that kind: unknown, not zero.
+  if (this->request_age_sensor_ != nullptr) {
+    this->request_age_sensor_->publish_state(this->has_request_ ? (millis() - this->last_request_) / 1000.0f
+                                                                : NAN);
+  }
+  if (this->response_age_sensor_ != nullptr) {
+    this->response_age_sensor_->publish_state(this->has_response_ ? (millis() - this->last_response_) / 1000.0f
+                                                                  : NAN);
+  }
+#endif
 }
 
 void UdpProxy::retry_start() {

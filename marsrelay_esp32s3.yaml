@@ -73,7 +73,8 @@ capture_dns:
 # UDP proxy bridges broadcasts between AP and STA networks for power meter discovery
 # Add multiple entries if you need to support different firmware versions
 udp_proxy:
-  - port: ${udp_proxy_port}
+  - id: meter_proxy
+    port: ${udp_proxy_port}
 
 mqtt:
   id: mqtt_client
@@ -151,3 +152,56 @@ marstack:
           return "${mqtt_topic_prefix}/venus/" + device_id + "/telemetry";
         payload: !lambda |-
           return telemetry;
+
+# Diagnostics. Everything below is entity_category diagnostic, so Home Assistant
+# files it under the device's diagnostics rather than on a dashboard. Every
+# entity is optional; see the README for the full list.
+binary_sensor:
+  # Device availability as the home broker sees it (via MQTT last will).
+  - platform: status
+    name: "Marsrelay online"
+
+  - platform: mosquitto_broker
+    mosquitto_broker_id: local_broker
+    running:
+      name: "Local broker running"
+    device_active:
+      name: "Battery MQTT data"
+      # Batteries publish in bursts minutes apart, so keep this well above that.
+      timeout: 15min
+
+  - platform: udp_proxy
+    udp_proxy_id: meter_proxy
+    active:
+      name: "UDP proxy active"
+    meter_responding:
+      name: "Power meter responding"
+      timeout: 5min
+
+  - platform: marstack
+    marstack_id: marstack_http
+    # The battery calls these endpoints on its own schedule, separate from MQTT.
+    device_active:
+      name: "Battery HTTP requests"
+      timeout: 30min
+
+sensor:
+  - platform: mosquitto_broker
+    mosquitto_broker_id: local_broker
+    device_messages:
+      name: "Battery messages"
+    app_messages:
+      name: "Commands relayed"
+    publish_errors:
+      name: "Broker publish errors"
+    broker_restarts:
+      name: "Broker restarts"
+    device_message_age:
+      name: "Last battery message"
+
+  - platform: udp_proxy
+    udp_proxy_id: meter_proxy
+    packets_to_sta:
+      name: "Meter requests forwarded"
+    packets_to_ap:
+      name: "Meter answers forwarded"

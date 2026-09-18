@@ -2,6 +2,7 @@
 
 #ifdef USE_NETWORK
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -364,10 +365,44 @@ std::string Marstack::formatted_date_string_() const {
   return std::string(buffer) + this->time_suffix_;
 }
 
+void Marstack::loop() {
+  const uint32_t now = millis();
+  if (this->diagnostics_interval_ms_ != SCHEDULER_DONT_RUN &&  // `never`
+      now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
+    this->last_diagnostics_ = now;
+    this->diagnostics_started_ = true;
+    this->publish_diagnostics_();
+  }
+}
+
+void Marstack::publish_diagnostics_() {
+#ifdef USE_BINARY_SENSOR
+  if (this->device_active_binary_sensor_ != nullptr) {
+    const bool active =
+        this->has_request() && millis() - this->last_request() < this->device_active_timeout_ms_;
+    this->device_active_binary_sensor_->publish_state(active);
+  }
+#endif
+
+#ifdef USE_SENSOR
+  if (this->requests_sensor_ != nullptr) {
+    this->requests_sensor_->publish_state((float) this->request_count());
+  }
+  if (this->venus_uploads_sensor_ != nullptr) {
+    this->venus_uploads_sensor_->publish_state((float) this->venus_upload_count());
+  }
+  if (this->request_age_sensor_ != nullptr) {
+    // NAN until the battery has made a request: unknown, not zero.
+    this->request_age_sensor_->publish_state(this->has_request() ? (millis() - this->last_request()) / 1000.0f
+                                                                 : NAN);
+  }
+#endif
+}
+
 void Marstack::dispatch(const Request &req, Response &res) {
-  this->request_count_++;
-  this->last_request_ = millis();
-  this->has_request_ = true;
+  this->request_count_.fetch_add(1);
+  this->last_request_.store(millis());
+  this->has_request_.store(true);
 
   ESP_LOGD(TAG, "%s %s from %s (body %zu bytes)", req.method.c_str(), req.url.c_str(), req.source_ip.c_str(),
            req.body.size());
@@ -418,7 +453,7 @@ void Marstack::dispatch(const Request &req, Response &res) {
     const std::string device_id = data_upload_device_id(req.url);
     // Counted whether or not the body arrived whole: the point of this
     // endpoint is the acknowledgement, which the battery gets either way.
-    this->venus_upload_count_++;
+    this->venus_upload_count_.fetch_add(1);
     if (!req.body_complete) {
       // Decoding half a record would publish wrong values under the device's
       // own name, which is worse than publishing none. Answer anyway: the

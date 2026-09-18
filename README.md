@@ -213,9 +213,75 @@ shelly_emulator:
     - grid_power_w
 ```
 
+## Diagnostics
+
+Marsrelay can publish its own state as Home Assistant entities: whether the
+broker and the UDP proxy are up, how many messages and packets each has moved,
+and how long ago the battery last sent something. They are useful when the
+device is still reachable but data has stopped arriving.
+
+All of them are `entity_category: diagnostic`, so Home Assistant files them
+under the device's diagnostics, and all of them are optional.
+[`marsrelay_esp32s3.yaml`](marsrelay_esp32s3.yaml) enables a subset; add or
+remove whatever you need.
+
+```yaml
+binary_sensor:
+  - platform: mosquitto_broker
+    mosquitto_broker_id: local_broker
+    device_active:
+      name: "Battery MQTT data"
+      timeout: 15min      # how long the battery may stay silent
+
+sensor:
+  - platform: udp_proxy
+    udp_proxy_id: meter_proxy
+    packets_to_sta:
+      name: "Meter requests forwarded"
+```
+
+| Entity | Platform | Reports |
+|---|---|---|
+| `running` | `mosquitto_broker` | the embedded broker task is running |
+| `device_active` | `mosquitto_broker` | the battery published on a `.../device/...` topic within `timeout` (default `15min`) |
+| `publish_client_connected` | `mosquitto_broker` | the internal client that relays commands to the battery is connected |
+| `device_messages` / `app_messages` | `mosquitto_broker` | messages received from the battery / relayed towards it |
+| `publish_errors` / `broker_restarts` | `mosquitto_broker` | publishes that failed, and how often the broker was restarted |
+| `device_message_age` | `mosquitto_broker` | seconds since the last battery message |
+| `active` | `udp_proxy` | both sockets are bound |
+| `meter_responding` | `udp_proxy` | the power meter answered within `timeout` (default `5min`) |
+| `packets_to_sta` / `packets_to_ap` | `udp_proxy` | packets forwarded to the home network / back to the battery |
+| `packets_dropped` / `sessions` | `udp_proxy` | packets not forwarded, and clients with an active session |
+| `request_age` / `response_age` | `udp_proxy` | seconds since the last packet in each direction |
+| `device_active` | `marstack` | the battery called a cloud endpoint within `timeout` (default `30min`) |
+| `requests` / `venus_uploads` | `marstack` | cloud requests and telemetry uploads answered |
+| `request_age` | `marstack` | seconds since the last cloud request |
+
+Each component refreshes its own entities every `diagnostics_interval`
+(default `60s`, settable on `mosquitto_broker:`, `udp_proxy:` and `marstack:`).
+Counters reset on reboot and are reported as `total_increasing`. The `*_age`
+sensors stay *unknown* until the first message of that kind arrives.
+
+A few values are easier to read in combination:
+
+- The battery calls the `marstack` HTTP endpoints on a schedule of its own,
+  separate from MQTT, so `marstack`'s `device_active` and the broker's can
+  differ. HTTP active with MQTT inactive means the battery still reaches
+  Marsrelay but its MQTT session is gone; both inactive means it is not
+  reaching Marsrelay at all.
+- `running` off means the broker task exited. It is restarted automatically,
+  and `broker_restarts` counts how often that happened.
+- `publish_errors` counts commands that did not reach the battery.
+- `meter_responding` off while `active` is on means the proxy is working and
+  nothing on the home network answered.
+
+The `status` binary sensor in the example config is ESPHome's own: over MQTT it
+reflects the connection to your home broker through the last will.
+
 ## Troubleshooting
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) for:
+The [diagnostic entities](#diagnostics) show which part stopped. See
+[docs/troubleshooting.md](docs/troubleshooting.md) for:
 
 - [The battery doesn't react to commands (e.g. cd=1)](docs/troubleshooting.md#the-battery-doesnt-react-to-commands-eg-cd1)
 - [No /device/ topic ever appears](docs/troubleshooting.md#no-device-topic-ever-appears)

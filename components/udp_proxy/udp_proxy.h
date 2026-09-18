@@ -8,6 +8,13 @@
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/network/ip_address.h"
 
+#ifdef USE_BINARY_SENSOR
+#include "esphome/components/binary_sensor/binary_sensor.h"
+#endif
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
+
 namespace esphome {
 namespace udp_proxy {
 
@@ -58,6 +65,25 @@ class UdpProxy : public Component {
   uint32_t last_request() const { return this->last_request_; }
   uint32_t last_response() const { return this->last_response_; }
 
+  /// How often the diagnostic entities below are refreshed.
+  void set_diagnostics_interval(uint32_t interval_ms) { this->diagnostics_interval_ms_ = interval_ms; }
+
+#ifdef USE_BINARY_SENSOR
+  SUB_BINARY_SENSOR(active)
+  SUB_BINARY_SENSOR(meter_responding)
+  /// How long the meter may stay quiet before `meter_responding` goes off.
+  void set_meter_timeout(uint32_t timeout_ms) { this->meter_timeout_ms_ = timeout_ms; }
+#endif
+
+#ifdef USE_SENSOR
+  SUB_SENSOR(packets_to_sta)
+  SUB_SENSOR(packets_to_ap)
+  SUB_SENSOR(packets_dropped)
+  SUB_SENSOR(sessions)
+  SUB_SENSOR(request_age)
+  SUB_SENSOR(response_age)
+#endif
+
  protected:
   /// Process incoming packets on the AP-side socket
   void process_ap_socket();
@@ -70,6 +96,9 @@ class UdpProxy : public Component {
 
   /// Try start() again, with a growing delay, while the proxy is not active.
   void retry_start();
+
+  /// Refresh whatever diagnostic entities are configured.
+  void publish_diagnostics();
 
   /// Check if an IP address belongs to the AP subnet
   bool is_ap_network(const network::IPAddress &ip);
@@ -125,6 +154,14 @@ class UdpProxy : public Component {
   uint32_t last_response_{0};
   bool has_request_{false};
   bool has_response_{false};
+
+  /// Diagnostics refresh bookkeeping
+  uint32_t diagnostics_interval_ms_{60000};
+  uint32_t last_diagnostics_{0};
+  bool diagnostics_started_{false};
+#ifdef USE_BINARY_SENSOR
+  uint32_t meter_timeout_ms_{300000};
+#endif
 };
 
 }  // namespace udp_proxy

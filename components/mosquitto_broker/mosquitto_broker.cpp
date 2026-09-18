@@ -7,6 +7,7 @@
 #include "esp_event.h"
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstring>
 
 namespace esphome {
@@ -106,6 +107,17 @@ void MosquittoBroker::setup() {
 }
 
 void MosquittoBroker::loop() {
+  // Refreshed first, so the paths below that return early still report. The
+  // first round runs a few seconds after boot rather than a full interval in,
+  // so the entities do not stay unknown that long.
+  const uint32_t now = esphome::millis();
+  if (this->diagnostics_interval_ms_ != SCHEDULER_DONT_RUN &&  // `never`
+      now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
+    this->last_diagnostics_ = now;
+    this->diagnostics_started_ = true;
+    this->publish_diagnostics_();
+  }
+
   if (this->broker_exited_.load()) {
     // mosq_broker_run() returned by itself: the broker is gone, but nothing
     // else notices -- WiFi stays up, the web server answers, and the battery's
@@ -163,6 +175,44 @@ void MosquittoBroker::loop() {
       }
     }
   }
+}
+
+void MosquittoBroker::publish_diagnostics_() {
+#ifdef USE_BINARY_SENSOR
+  if (this->running_binary_sensor_ != nullptr) {
+    this->running_binary_sensor_->publish_state(this->is_broker_running());
+  }
+  if (this->publish_client_connected_binary_sensor_ != nullptr) {
+    this->publish_client_connected_binary_sensor_->publish_state(this->is_publish_client_connected());
+  }
+  if (this->device_active_binary_sensor_ != nullptr) {
+    // The battery publishes in bursts, so this is a timeout rather than a
+    // per-message state.
+    const bool active = this->has_device_message() &&
+                        esphome::millis() - this->last_device_message() < this->device_active_timeout_ms_;
+    this->device_active_binary_sensor_->publish_state(active);
+  }
+#endif
+
+#ifdef USE_SENSOR
+  if (this->device_messages_sensor_ != nullptr) {
+    this->device_messages_sensor_->publish_state((float) this->device_message_count());
+  }
+  if (this->app_messages_sensor_ != nullptr) {
+    this->app_messages_sensor_->publish_state((float) this->app_message_count());
+  }
+  if (this->publish_errors_sensor_ != nullptr) {
+    this->publish_errors_sensor_->publish_state((float) this->publish_error_count());
+  }
+  if (this->broker_restarts_sensor_ != nullptr) {
+    this->broker_restarts_sensor_->publish_state((float) this->broker_restart_count());
+  }
+  if (this->device_message_age_sensor_ != nullptr) {
+    // NAN until the battery has published once: unknown, not zero.
+    this->device_message_age_sensor_->publish_state(
+        this->has_device_message() ? (esphome::millis() - this->last_device_message()) / 1000.0f : NAN);
+  }
+#endif
 }
 
 void MosquittoBroker::dump_config() {
