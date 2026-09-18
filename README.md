@@ -281,8 +281,11 @@ reflects the connection to your home broker through the last will.
 ### Acting on silence
 
 The same signals are available as automations, so Marsrelay can react on its
-own. This works when the home broker or Home Assistant is the unreachable part,
-which is when an automation on the Home Assistant side would not run.
+own. The trigger always runs on the device, but what an action achieves depends
+on what it needs: the `mqtt.publish` below goes to your home broker, so it only
+arrives while that broker is reachable. The two actions further down need
+nothing outside the device, which is what makes them useful when Home Assistant
+is the part that went away.
 
 ```yaml
 mosquitto_broker:
@@ -314,7 +317,7 @@ binary sensors' timeouts and of `diagnostics_interval`, including `never`.
 A timeout does not fire before the signal has been active once, so a reboot
 does not look like a loss, and a recovery fires only after a timeout did.
 
-Two examples that need nothing outside the device:
+Two actions that need nothing outside the device:
 
 ```yaml
 # Send the battery a command through the local broker. The payload is
@@ -329,25 +332,41 @@ mosquitto_broker:
           topic: "marstek_energy/<deviceType>/App/<deviceId>/ctrl"
           payload: "cd=07"
 
-# Or restart the relay, using ESPHome's own restart switch.
+# Or restart the relay, using ESPHome's own restart switch. The condition keeps
+# it to the case where both sides went quiet, since either one can stop on its
+# own.
 switch:
   - platform: restart
     id: restart_switch
     name: "Restart"
+
+binary_sensor:
+  - platform: mosquitto_broker
+    mosquitto_broker_id: local_broker
+    device_active:
+      id: battery_mqtt_data
+      name: "Battery MQTT data"
 
 marstack:
   id: marstack_http
   on_device_timeout:
     timeout: 45min
     then:
-      - switch.turn_on: restart_switch
+      - if:
+          condition:
+            binary_sensor.is_off: battery_mqtt_data
+          then:
+            - switch.turn_on: restart_switch
 ```
 
 A restart cannot end up in a loop: after the reboot the battery has to be seen
 again before another timeout can fire, so a battery that is simply switched off
-triggers one restart and no more. `marstack`'s timeout is the one to hang a
-restart on, since it only goes quiet when the battery has stopped reaching the
-relay on every path, not just over MQTT.
+triggers one restart and no more.
+
+Neither timeout on its own proves the battery is gone. The HTTP side can go
+quiet while MQTT keeps working, and the other way round — that is the same
+split the [diagnostics](#diagnostics) notes describe — so a restart is worth
+gating on both, as above.
 
 ## Troubleshooting
 

@@ -36,3 +36,12 @@ def test_failsafe_action_reaches_the_local_broker(generate_main):
     # through the local broker, with the home broker uninvolved.
     assert "mosquitto_broker::PublishMessageAction" in main_cpp
     assert "marstek_energy/HMJ-2/App/0123456789ab/ctrl" in main_cpp
+
+
+def test_restart_is_gated_on_the_other_liveness_signal(generate_main):
+    main_cpp = generate_main(str(FIXTURE))
+    # Either side can go quiet on its own, so the documented restart pattern
+    # checks the MQTT binary sensor before rebooting on an HTTP timeout.
+    assert "restart::RestartSwitch" in main_cpp
+    assert "local_broker->set_device_active_binary_sensor(" in main_cpp
+    assert "BinarySensorCondition" in main_cpp

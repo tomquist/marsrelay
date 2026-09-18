@@ -41,6 +41,13 @@ switch:
     id: restart_switch
     name: "Restart"
 
+binary_sensor:
+  - platform: mosquitto_broker
+    mosquitto_broker_id: local_broker
+    device_active:
+      id: battery_mqtt_data
+      name: "Battery MQTT data"
+
 udp_proxy:
   - id: meter_proxy
     port: 1010
@@ -84,8 +91,13 @@ marstack:
   on_device_timeout:
     timeout: 45min
     then:
-      # The battery is not reaching the relay at all any more.
-      - switch.turn_on: restart_switch
+      # Only when the MQTT side went quiet too: either signal can stop on its
+      # own without the battery being gone.
+      - if:
+          condition:
+            binary_sensor.is_off: battery_mqtt_data
+          then:
+            - switch.turn_on: restart_switch
   on_device_recovered:
     timeout: 45min
     then:
