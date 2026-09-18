@@ -46,6 +46,52 @@ struct Response {
   bool kong_headers{false};
 };
 
+/// Fires when the battery stops calling the cloud endpoints for longer than
+/// `timeout_ms`, or when it starts again after that. Each automation carries
+/// its own timeout and its own state, so a config can act at several
+/// thresholds.
+///
+/// No timeout fires before the first request: a relay that has just booted has
+/// not lost anything yet. A recovery fires only after a timeout did.
+class DeviceLivenessTrigger : public Trigger<> {
+ public:
+  DeviceLivenessTrigger(uint32_t timeout_ms, bool fire_on_timeout)
+      : timeout_ms_(timeout_ms), fire_on_timeout_(fire_on_timeout) {}
+
+  void update(bool seen, uint32_t last_ms) {
+    const bool active = seen && millis() - last_ms < this->timeout_ms_;
+    switch (this->state_) {
+      case WAITING:
+        if (active) {
+          this->state_ = ACTIVE;
+        }
+        break;
+      case ACTIVE:
+        if (!active) {
+          this->state_ = TIMED_OUT;
+          if (this->fire_on_timeout_) {
+            this->trigger();
+          }
+        }
+        break;
+      case TIMED_OUT:
+        if (active) {
+          this->state_ = ACTIVE;
+          if (!this->fire_on_timeout_) {
+            this->trigger();
+          }
+        }
+        break;
+    }
+  }
+
+ protected:
+  enum State : uint8_t { WAITING, ACTIVE, TIMED_OUT };
+  uint32_t timeout_ms_;
+  bool fire_on_timeout_;
+  State state_{WAITING};
+};
+
 class MarstackRequestTrigger : public Trigger<std::string, std::string, std::string, std::string> {
  public:
   explicit MarstackRequestTrigger(void *parent) : parent_(parent) {}
@@ -75,6 +121,7 @@ class Marstack : public Component, public AsyncWebHandler {
   void add_venus_upload_trigger(MarstackVenusUploadTrigger *trigger) {
     this->venus_upload_triggers_.push_back(trigger);
   }
+  void add_liveness_trigger(DeviceLivenessTrigger *trigger) { this->liveness_triggers_.push_back(trigger); }
 
   void set_raw_responses(bool raw) { this->raw_responses_ = raw; }
   void set_accept_all(bool accept_all) { this->accept_all_ = accept_all; }
@@ -129,6 +176,7 @@ class Marstack : public Component, public AsyncWebHandler {
   web_server_base::WebServerBase *base_;
   std::vector<MarstackRequestTrigger *> request_triggers_;
   std::vector<MarstackVenusUploadTrigger *> venus_upload_triggers_;
+  std::vector<DeviceLivenessTrigger *> liveness_triggers_;
   // Store POST body data as it arrives via onBody callback
   std::string post_body_buffer_;
   AsyncWebServerRequest *current_post_request_{nullptr};

@@ -278,6 +278,77 @@ A few values are easier to read in combination:
 The `status` binary sensor in the example config is ESPHome's own: over MQTT it
 reflects the connection to your home broker through the last will.
 
+### Acting on silence
+
+The same signals are available as automations, so Marsrelay can react on its
+own. This works when the home broker or Home Assistant is the unreachable part,
+which is when an automation on the Home Assistant side would not run.
+
+```yaml
+mosquitto_broker:
+  id: local_broker
+  on_device_timeout:
+    timeout: 15min
+    then:
+      - mqtt.publish:
+          topic: marsrelay/status/device_stale
+          payload: "ON"
+  on_device_recovered:
+    timeout: 15min
+    then:
+      - mqtt.publish:
+          topic: marsrelay/status/device_stale
+          payload: "OFF"
+```
+
+| Trigger | Component | Fires when |
+|---|---|---|
+| `on_device_timeout` / `on_device_recovered` | `mosquitto_broker` | the battery stops publishing on a `.../device/...` topic for `timeout` (default `15min`), and when it starts again |
+| `on_meter_timeout` / `on_meter_recovered` | `udp_proxy` | the power meter stops answering for `timeout` (default `5min`), and when it answers again |
+| `on_device_timeout` / `on_device_recovered` | `marstack` | the battery stops calling the cloud endpoints for `timeout` (default `30min`), and when it starts again |
+
+Each automation carries its own `timeout:` and its own state, so one config can
+note a short silence and act on a longer one. They are independent of the
+binary sensors' timeouts and of `diagnostics_interval`, including `never`.
+
+A timeout does not fire before the signal has been active once, so a reboot
+does not look like a loss, and a recovery fires only after a timeout did.
+
+Two examples that need nothing outside the device:
+
+```yaml
+# Send the battery a command through the local broker. The payload is
+# device-specific -- see hm2mqtt for what a given model accepts.
+mosquitto_broker:
+  id: local_broker
+  on_device_timeout:
+    timeout: 90min
+    then:
+      - mosquitto_broker.publish_message:
+          id: local_broker
+          topic: "marstek_energy/<deviceType>/App/<deviceId>/ctrl"
+          payload: "cd=07"
+
+# Or restart the relay, using ESPHome's own restart switch.
+switch:
+  - platform: restart
+    id: restart_switch
+    name: "Restart"
+
+marstack:
+  id: marstack_http
+  on_device_timeout:
+    timeout: 45min
+    then:
+      - switch.turn_on: restart_switch
+```
+
+A restart cannot end up in a loop: after the reboot the battery has to be seen
+again before another timeout can fire, so a battery that is simply switched off
+triggers one restart and no more. `marstack`'s timeout is the one to hang a
+restart on, since it only goes quiet when the battery has stopped reaching the
+relay on every path, not just over MQTT.
+
 ## Troubleshooting
 
 The [diagnostic entities](#diagnostics) show which part stopped. See

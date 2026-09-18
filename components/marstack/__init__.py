@@ -6,7 +6,13 @@ import esphome.config_validation as cv
 from esphome import automation
 from esphome.components import web_server_base
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
-from esphome.const import CONF_ID, CONF_PORT, CONF_TRIGGER_ID, PlatformFramework
+from esphome.const import (
+    CONF_ID,
+    CONF_PORT,
+    CONF_TIMEOUT,
+    CONF_TRIGGER_ID,
+    PlatformFramework,
+)
 from esphome.core import CORE
 import esphome.final_validate as fv
 from esphome.types import ConfigType
@@ -14,6 +20,8 @@ from esphome.types import ConfigType
 CONF_MARSTACK_ID = "marstack_id"
 CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
 CONF_ON_REQUEST = "on_request"
+CONF_ON_DEVICE_TIMEOUT = "on_device_timeout"
+CONF_ON_DEVICE_RECOVERED = "on_device_recovered"
 CONF_ON_VENUS_UPLOAD = "on_venus_upload"
 CONF_RAW_RESPONSES = "raw_responses"
 CONF_TIME_SUFFIX = "time_suffix"
@@ -39,6 +47,23 @@ MarstackVenusUploadTrigger = marstack_ns.class_(
     "MarstackVenusUploadTrigger",
     automation.Trigger.template(cg.std_string, cg.std_string),
 )
+DeviceLivenessTrigger = marstack_ns.class_(
+    "DeviceLivenessTrigger", automation.Trigger.template()
+)
+
+
+def _liveness_automation(default_timeout: str):
+    # Each automation carries its own timeout, so one config can warn at a
+    # short silence and act at a longer one.
+    return automation.validate_automation(
+        {
+            cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(DeviceLivenessTrigger),
+            cv.Optional(
+                CONF_TIMEOUT, default=default_timeout
+            ): cv.positive_time_period_milliseconds,
+        }
+    )
+
 
 # The battery reads the TLS reply with a loop whose only early exit is our
 # close_notify, so it waits out its own 20 s receive timeout on every upload.
@@ -93,6 +118,8 @@ CONFIG_SCHEMA = cv.Schema(
                 ),
             }
         ),
+        cv.Optional(CONF_ON_DEVICE_TIMEOUT): _liveness_automation("30min"),
+        cv.Optional(CONF_ON_DEVICE_RECOVERED): _liveness_automation("30min"),
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
@@ -166,6 +193,19 @@ async def to_code(config):
             [(cg.std_string, "device_id"), (cg.std_string, "telemetry")],
             conf,
         )
+
+    for key, fire_on_timeout in (
+        (CONF_ON_DEVICE_TIMEOUT, True),
+        (CONF_ON_DEVICE_RECOVERED, False),
+    ):
+        for conf in config.get(key, []):
+            trigger = cg.new_Pvariable(
+                conf[CONF_TRIGGER_ID],
+                conf[CONF_TIMEOUT].total_milliseconds,
+                fire_on_timeout,
+            )
+            cg.add(var.add_liveness_trigger(trigger))
+            await automation.build_automation(trigger, [], conf)
 
     if (https := config.get(CONF_HTTPS)) is not None:
         server = cg.new_Pvariable(https[CONF_ID], var)

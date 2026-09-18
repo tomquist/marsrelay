@@ -1,9 +1,12 @@
+from esphome import automation
 import esphome.codegen as cg
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ID,
     CONF_PORT,
+    CONF_TIMEOUT,
+    CONF_TRIGGER_ID,
     PLATFORM_ESP32,
     PlatformFramework,
 )
@@ -27,9 +30,28 @@ MULTI_CONF = True
 CONF_SESSION_TIMEOUT = "session_timeout"
 CONF_UDP_PROXY_ID = "udp_proxy_id"
 CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
+CONF_ON_METER_TIMEOUT = "on_meter_timeout"
+CONF_ON_METER_RECOVERED = "on_meter_recovered"
 
 udp_proxy_ns = cg.esphome_ns.namespace("udp_proxy")
 UdpProxy = udp_proxy_ns.class_("UdpProxy", cg.Component)
+MeterLivenessTrigger = udp_proxy_ns.class_(
+    "MeterLivenessTrigger", automation.Trigger.template()
+)
+
+
+def _liveness_automation(default_timeout: str):
+    # Each automation carries its own timeout, so one config can warn at a
+    # short silence and act at a longer one.
+    return automation.validate_automation(
+        {
+            cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MeterLivenessTrigger),
+            cv.Optional(
+                CONF_TIMEOUT, default=default_timeout
+            ): cv.positive_time_period_milliseconds,
+        }
+    )
+
 
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
@@ -38,6 +60,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Required(CONF_PORT): cv.port,
             cv.Optional(CONF_SESSION_TIMEOUT, default="30s"): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
+            cv.Optional(CONF_ON_METER_TIMEOUT): _liveness_automation("5min"),
+            cv.Optional(CONF_ON_METER_RECOVERED): _liveness_automation("5min"),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_on([PLATFORM_ESP32]),
@@ -84,6 +108,19 @@ async def to_code(config):
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_session_timeout(config[CONF_SESSION_TIMEOUT]))
     cg.add(var.set_diagnostics_interval(config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds))
+
+    for key, fire_on_timeout in (
+        (CONF_ON_METER_TIMEOUT, True),
+        (CONF_ON_METER_RECOVERED, False),
+    ):
+        for conf in config.get(key, []):
+            trigger = cg.new_Pvariable(
+                conf[CONF_TRIGGER_ID],
+                conf[CONF_TIMEOUT].total_milliseconds,
+                fire_on_timeout,
+            )
+            cg.add(var.add_liveness_trigger(trigger))
+            await automation.build_automation(trigger, [], conf)
 
 
 FILTER_SOURCE_FILES = filter_source_files_from_platform(
