@@ -153,11 +153,9 @@ marstack:
         payload: !lambda |-
           return telemetry;
 
-# Diagnostics: everything below is entity_category diagnostic, so Home Assistant
-# files it under the device's diagnostics rather than on a dashboard. It answers
-# the questions a relay that is still pingable cannot otherwise answer -- whether
-# the battery is still talking, and whether the meter still answers.
-# Drop any entity you do not want; each one is optional.
+# Diagnostics. Everything below is entity_category diagnostic, so Home Assistant
+# files it under the device's diagnostics rather than on a dashboard. Every
+# entity is optional; see the README for the full list.
 binary_sensor:
   # Device availability as the home broker sees it (via MQTT last will).
   - platform: status
@@ -169,7 +167,7 @@ binary_sensor:
       name: "Local broker running"
     device_active:
       name: "Battery MQTT data"
-      # Batteries publish in bursts minutes apart; 15 min of silence is real.
+      # Batteries publish in bursts minutes apart, so keep this well above that.
       timeout: 15min
 
   - platform: udp_proxy
@@ -182,8 +180,7 @@ binary_sensor:
 
   - platform: marstack
     marstack_id: marstack_http
-    # The battery calls these endpoints on its own schedule, so this keeps
-    # answering when the MQTT side has gone quiet -- which tells the two apart.
+    # The battery calls these endpoints on its own schedule, separate from MQTT.
     device_active:
       name: "Battery HTTP requests"
       timeout: 30min

@@ -102,8 +102,7 @@ class Marstack : public Component, public AsyncWebHandler {
 #ifdef USE_BINARY_SENSOR
   SUB_BINARY_SENSOR(device_active)
   /// How long the battery may go without a request before `device_active` goes
-  /// off. It polls the clock endpoint on a schedule of its own, so this is a
-  /// coarser signal than the MQTT one.
+  /// off. It calls these endpoints on its own schedule, separate from MQTT.
   void set_device_active_timeout(uint32_t timeout_ms) { this->device_active_timeout_ms_ = timeout_ms; }
 #endif
 

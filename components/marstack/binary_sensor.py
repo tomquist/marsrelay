@@ -1,8 +1,7 @@
 """Diagnostic binary sensor for the cloud HTTP emulation.
 
-The battery polls these endpoints on a schedule of its own, independent of its
-MQTT connection, so this keeps answering "is the battery there at all?" when
-the MQTT side has gone quiet.
+The battery calls these endpoints on a schedule of its own, separate from its
+MQTT connection.
 """
 
 import esphome.codegen as cg
@@ -29,8 +28,8 @@ CONFIG_SCHEMA = cv.Schema(
             icon="mdi:cloud-check-outline",
         ).extend(
             {
-                # How often a battery calls the clock endpoint varies by model
-                # and firmware; half an hour is long enough not to flap.
+                # How often a battery calls the clock endpoint varies by
+                # model and firmware, so keep this generous.
                 cv.Optional(
                     CONF_TIMEOUT, default="30min"
                 ): cv.positive_time_period_milliseconds,

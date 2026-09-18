@@ -166,8 +166,8 @@ void UdpProxy::stop() {
 void UdpProxy::loop() {
   const uint32_t now = millis();
 
-  // Before the early return below: a proxy that never came up is exactly the
-  // state the `active` entity exists to report.
+  // Ahead of the early return below, so a proxy that is not active still
+  // publishes that.
   if (now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
     this->last_diagnostics_ = now;
     this->diagnostics_started_ = true;
@@ -220,7 +220,7 @@ void UdpProxy::publish_diagnostics() {
   if (this->sessions_sensor_ != nullptr) {
     this->sessions_sensor_->publish_state((float) this->sessions_.size());
   }
-  // NAN until the first packet of that kind: "none yet" is not "0 seconds ago".
+  // NAN until the first packet of that kind: unknown, not zero.
   if (this->request_age_sensor_ != nullptr) {
     this->request_age_sensor_->publish_state(this->has_request_ ? (millis() - this->last_request_) / 1000.0f
                                                                 : NAN);

@@ -1,8 +1,4 @@
-"""Diagnostic binary sensors for the local broker.
-
-Answers "is the broker up, and is the battery still talking to it?" -- the two
-questions a relay that looks healthy from the outside cannot otherwise answer.
-"""
+"""Diagnostic binary sensors for the local broker."""
 
 import esphome.codegen as cg
 from esphome.components import binary_sensor
@@ -36,8 +32,8 @@ CONFIG_SCHEMA = cv.Schema(
             icon="mdi:battery-sync",
         ).extend(
             {
-                # Batteries publish in bursts minutes apart, so a timeout this
-                # side of a quarter hour would flap on a healthy setup.
+                # Batteries publish in bursts minutes apart, so shorter
+                # timeouts flap on a working setup.
                 cv.Optional(
                     CONF_TIMEOUT, default="15min"
                 ): cv.positive_time_period_milliseconds,

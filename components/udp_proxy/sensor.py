@@ -1,4 +1,4 @@
-"""Diagnostic sensors for the UDP proxy: traffic each way, and how stale it is."""
+"""Diagnostic sensors for the UDP proxy."""
 
 import esphome.codegen as cg
 from esphome.components import sensor

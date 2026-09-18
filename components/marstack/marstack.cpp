@@ -391,8 +391,7 @@ void Marstack::publish_diagnostics_() {
     this->venus_uploads_sensor_->publish_state((float) this->venus_upload_count_);
   }
   if (this->request_age_sensor_ != nullptr) {
-    // NAN until the battery has asked for something: "nothing yet" is not the
-    // same as "the last request was 0 seconds ago".
+    // NAN until the battery has made a request: unknown, not zero.
     this->request_age_sensor_->publish_state(this->has_request_ ? (millis() - this->last_request_) / 1000.0f
                                                                 : NAN);
   }

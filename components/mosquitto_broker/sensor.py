@@ -1,4 +1,4 @@
-"""Diagnostic sensors for the local broker: what moved, and how long ago."""
+"""Diagnostic sensors for the local broker."""
 
 import esphome.codegen as cg
 from esphome.components import sensor

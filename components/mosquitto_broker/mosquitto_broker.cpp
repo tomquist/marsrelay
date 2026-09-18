@@ -107,10 +107,9 @@ void MosquittoBroker::setup() {
 }
 
 void MosquittoBroker::loop() {
-  // Refresh the diagnostic entities first, so a loop that returns early below
-  // (a broker restart, say) still reports what it just found. The first round
-  // comes early rather than after a full interval, so the entities are not
-  // unknown for a minute after every boot.
+  // Refreshed first, so the paths below that return early still report. The
+  // first round runs a few seconds after boot rather than a full interval in,
+  // so the entities do not stay unknown that long.
   const uint32_t now = esphome::millis();
   if (now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
     this->last_diagnostics_ = now;
@@ -186,8 +185,8 @@ void MosquittoBroker::publish_diagnostics_() {
     this->publish_client_connected_binary_sensor_->publish_state(this->is_publish_client_connected());
   }
   if (this->device_active_binary_sensor_ != nullptr) {
-    // Silence is the whole signal: a battery that stopped publishing looks
-    // like a healthy relay from every other angle.
+    // The battery publishes in bursts, so this is a timeout rather than a
+    // per-message state.
     const bool active = this->has_device_message() &&
                         esphome::millis() - this->last_device_message() < this->device_active_timeout_ms_;
     this->device_active_binary_sensor_->publish_state(active);
@@ -208,8 +207,7 @@ void MosquittoBroker::publish_diagnostics_() {
     this->broker_restarts_sensor_->publish_state((float) this->broker_restart_count());
   }
   if (this->device_message_age_sensor_ != nullptr) {
-    // NAN until the battery has published once: "no message yet" is not the
-    // same as "the last one was 0 seconds ago".
+    // NAN until the battery has published once: unknown, not zero.
     this->device_message_age_sensor_->publish_state(
         this->has_device_message() ? (esphome::millis() - this->last_device_message()) / 1000.0f : NAN);
   }

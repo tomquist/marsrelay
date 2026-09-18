@@ -31,8 +31,8 @@ CONFIG_SCHEMA = cv.Schema(
             icon="mdi:gauge",
         ).extend(
             {
-                # A meter answers each discovery broadcast, and the battery
-                # sends those every few seconds, so minutes of silence is real.
+                # The battery broadcasts every few seconds and the meter
+                # answers each one, so shorter timeouts flap.
                 cv.Optional(
                     CONF_TIMEOUT, default="5min"
                 ): cv.positive_time_period_milliseconds,
