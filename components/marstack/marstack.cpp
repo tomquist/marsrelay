@@ -367,6 +367,13 @@ std::string Marstack::formatted_date_string_() const {
 
 void Marstack::loop() {
   const uint32_t now = millis();
+
+  // Evaluated every loop rather than on the diagnostics tick: an automation
+  // should still fire when `diagnostics_interval` is long, or `never`.
+  for (auto *trigger : this->liveness_triggers_) {
+    trigger->update(this->has_request(), this->last_request());
+  }
+
   if (this->diagnostics_interval_ms_ != SCHEDULER_DONT_RUN &&  // `never`
       now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
     this->last_diagnostics_ = now;

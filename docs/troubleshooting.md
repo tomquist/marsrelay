@@ -67,7 +67,7 @@ If the log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable t
 - The [diagnostic entities](../README.md#diagnostics) show which part stopped: `Local broker running` and `Broker restarts` for the broker, `Battery MQTT data` and `Battery HTTP requests` for the battery's two connections.
 - Some users report better long-term stability with `CONFIG_LWIP_MAX_SOCKETS: "32"` and `CONFIG_LWIP_SOCKET_OFFSET: "16"` in the `sdkconfig_options`.
 - Since a build from `main`, a broker that exits on its own is started again automatically (the log says `Broker task exited on its own; restarting it in ... ms`). Before that it stayed down until the next reboot, which is one way the symptom below could be reached. Seeing that line repeatedly means the broker keeps dying — the settings in this list still apply.
-- A power cycle of the ESP32 restores communication as a stopgap.
+- A power cycle of the ESP32 restores communication as a stopgap. The [liveness automations](../README.md#acting-on-silence) can do that, or send the battery a command, without Home Assistant being involved.
 - The log line `TLS client: certificate verification relaxed (CN check disabled, ...)` is expected with `tls_skip_verification: true` and is not an error.
 - If crashes persist, double-check the `psram` settings match your board, and consider a standard ESP32-S3 devkit board.
 

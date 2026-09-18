@@ -39,6 +39,52 @@ class MosquittoMessageTrigger : public Trigger<std::string, std::string> {
   void *parent_;
 };
 
+/// Fires when the battery stops publishing for longer than `timeout_ms`, or
+/// when it starts again after that. Each automation carries its own timeout and
+/// its own state, so a config can act at several thresholds.
+///
+/// No timeout fires before the battery has published once: a relay that has
+/// just booted has not lost anything yet. A recovery fires only after a timeout
+/// did, so the first message of the day is not a recovery either.
+class DeviceLivenessTrigger : public Trigger<> {
+ public:
+  DeviceLivenessTrigger(uint32_t timeout_ms, bool fire_on_timeout)
+      : timeout_ms_(timeout_ms), fire_on_timeout_(fire_on_timeout) {}
+
+  void update(bool seen, uint32_t last_ms) {
+    const bool active = seen && esphome::millis() - last_ms < this->timeout_ms_;
+    switch (this->state_) {
+      case WAITING:
+        if (active) {
+          this->state_ = ACTIVE;
+        }
+        break;
+      case ACTIVE:
+        if (!active) {
+          this->state_ = TIMED_OUT;
+          if (this->fire_on_timeout_) {
+            this->trigger();
+          }
+        }
+        break;
+      case TIMED_OUT:
+        if (active) {
+          this->state_ = ACTIVE;
+          if (!this->fire_on_timeout_) {
+            this->trigger();
+          }
+        }
+        break;
+    }
+  }
+
+ protected:
+  enum State : uint8_t { WAITING, ACTIVE, TIMED_OUT };
+  uint32_t timeout_ms_;
+  bool fire_on_timeout_;
+  State state_{WAITING};
+};
+
 class MosquittoBroker : public Component {
  public:
   struct IdMapping {
@@ -63,6 +109,7 @@ class MosquittoBroker : public Component {
 
   void publish_message(const std::string &topic, const std::string &payload);
   void add_message_trigger(MosquittoMessageTrigger *trigger) { this->message_triggers_.push_back(trigger); }
+  void add_liveness_trigger(DeviceLivenessTrigger *trigger) { this->liveness_triggers_.push_back(trigger); }
   void set_publish_state(mqtt::MQTTClientState state) { this->publish_state_ = state; }
 
   /// True while the broker task is running. It goes false when mosq_broker_run()
@@ -148,6 +195,7 @@ class MosquittoBroker : public Component {
   uint32_t connect_begin_{0};
   esp_mqtt_client_handle_t esp_mqtt_client_{nullptr};
   std::vector<MosquittoMessageTrigger *> message_triggers_;
+  std::vector<DeviceLivenessTrigger *> liveness_triggers_;
   std::vector<IdMapping> id_mappings_;
 
   // mosq_broker runs the broker, and calls its message callback, on its own

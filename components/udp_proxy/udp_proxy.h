@@ -4,6 +4,8 @@
 
 #include <memory>
 #include <map>
+#include <vector>
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/network/ip_address.h"
@@ -17,6 +19,51 @@
 
 namespace esphome {
 namespace udp_proxy {
+
+/// Fires when the power meter stops answering for longer than `timeout_ms`, or
+/// when it answers again after that. Each automation carries its own timeout
+/// and its own state, so a config can act at several thresholds.
+///
+/// No timeout fires before the meter has answered once: a relay that has just
+/// booted has not lost anything yet. A recovery fires only after a timeout did.
+class MeterLivenessTrigger : public Trigger<> {
+ public:
+  MeterLivenessTrigger(uint32_t timeout_ms, bool fire_on_timeout)
+      : timeout_ms_(timeout_ms), fire_on_timeout_(fire_on_timeout) {}
+
+  void update(bool seen, uint32_t last_ms) {
+    const bool active = seen && millis() - last_ms < this->timeout_ms_;
+    switch (this->state_) {
+      case WAITING:
+        if (active) {
+          this->state_ = ACTIVE;
+        }
+        break;
+      case ACTIVE:
+        if (!active) {
+          this->state_ = TIMED_OUT;
+          if (this->fire_on_timeout_) {
+            this->trigger();
+          }
+        }
+        break;
+      case TIMED_OUT:
+        if (active) {
+          this->state_ = ACTIVE;
+          if (!this->fire_on_timeout_) {
+            this->trigger();
+          }
+        }
+        break;
+    }
+  }
+
+ protected:
+  enum State : uint8_t { WAITING, ACTIVE, TIMED_OUT };
+  uint32_t timeout_ms_;
+  bool fire_on_timeout_;
+  State state_{WAITING};
+};
 
 /// Represents an active UDP session that tracks a client's source port
 /// so responses can be routed back correctly.
@@ -67,6 +114,8 @@ class UdpProxy : public Component {
 
   /// How often the diagnostic entities below are refreshed.
   void set_diagnostics_interval(uint32_t interval_ms) { this->diagnostics_interval_ms_ = interval_ms; }
+
+  void add_liveness_trigger(MeterLivenessTrigger *trigger) { this->liveness_triggers_.push_back(trigger); }
 
 #ifdef USE_BINARY_SENSOR
   SUB_BINARY_SENSOR(active)
@@ -154,6 +203,8 @@ class UdpProxy : public Component {
   uint32_t last_response_{0};
   bool has_request_{false};
   bool has_response_{false};
+
+  std::vector<MeterLivenessTrigger *> liveness_triggers_;
 
   /// Diagnostics refresh bookkeeping
   uint32_t diagnostics_interval_ms_{60000};

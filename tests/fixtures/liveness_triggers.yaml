@@ -1,0 +1,104 @@
+# The liveness automations, including two thresholds on the same signal to
+# cover per-automation timeouts.
+esphome:
+  name: test-liveness-triggers
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      # The embedded broker's esp_tls port references struct sockaddr_in6, so
+      # it does not compile with lwIP's IPv6 support off.
+      CONFIG_LWIP_IPV6: y
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+wifi:
+  ssid: "test"
+  password: "testpass"
+  ap:
+    ssid: "fallback"
+    password: "fallbackpass"
+
+logger:
+
+mqtt:
+  broker: 127.0.0.1
+  username: "user"
+  password: "pass"
+
+web_server:
+  port: 80
+  version: 3
+
+switch:
+  - platform: restart
+    id: restart_switch
+    name: "Restart"
+
+binary_sensor:
+  - platform: mosquitto_broker
+    mosquitto_broker_id: local_broker
+    device_active:
+      id: battery_mqtt_data
+      name: "Battery MQTT data"
+
+udp_proxy:
+  - id: meter_proxy
+    port: 1010
+    on_meter_timeout:
+      timeout: 2min
+      then:
+        - logger.log: "Power meter stopped answering"
+    on_meter_recovered:
+      timeout: 2min
+      then:
+        - logger.log: "Power meter answering again"
+
+mosquitto_broker:
+  id: local_broker
+  tls: false
+  port: 1883
+  on_device_timeout:
+    # Two thresholds on the same signal: note first, act later.
+    - timeout: 20min
+      then:
+        - mqtt.publish:
+            topic: marsrelay/status/device_stale
+            payload: "ON"
+    - timeout: 90min
+      then:
+        # What a local failsafe looks like: send the battery a command through
+        # the local broker without involving the home broker at all.
+        - mosquitto_broker.publish_message:
+            id: local_broker
+            topic: "marstek_energy/HMJ-2/App/0123456789ab/ctrl"
+            payload: "cd=07"
+  on_device_recovered:
+    timeout: 20min
+    then:
+      - mqtt.publish:
+          topic: marsrelay/status/device_stale
+          payload: "OFF"
+
+marstack:
+  id: marstack_http
+  on_device_timeout:
+    timeout: 45min
+    then:
+      # Only when the MQTT side went quiet too: either signal can stop on its
+      # own without the battery being gone.
+      - if:
+          condition:
+            binary_sensor.is_off: battery_mqtt_data
+          then:
+            - switch.turn_on: restart_switch
+  on_device_recovered:
+    timeout: 45min
+    then:
+      - logger.log: "Battery HTTP requests resumed"
