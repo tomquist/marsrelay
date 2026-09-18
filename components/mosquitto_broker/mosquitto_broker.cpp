@@ -5,6 +5,7 @@
 #include "esp_tls.h"
 #include "mqtt_client.h"
 #include "esp_event.h"
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 
@@ -105,7 +106,24 @@ void MosquittoBroker::setup() {
 }
 
 void MosquittoBroker::loop() {
-  if (!this->broker_started_ && esphome::millis() - this->broker_start_at_ > 1000) {
+  if (this->broker_exited_.load()) {
+    // mosq_broker_run() returned by itself: the broker is gone, but nothing
+    // else notices -- WiFi stays up, the web server answers, and the battery's
+    // messages go nowhere. Start it again instead of waiting for a power cycle.
+    this->broker_exited_.store(false);
+    this->broker_started_ = false;
+    this->broker_restarts_++;
+    // The publish client is holding a connection to a broker that no longer
+    // exists; drop it so it is rebuilt against the new one.
+    this->teardown_publish_client_();
+    this->broker_start_delay_ = std::min<uint32_t>(this->broker_start_delay_ * 2, 60000);
+    this->broker_start_at_ = esphome::millis();
+    ESP_LOGE(TAG, "Broker task exited on its own; restarting it in %u ms (restart #%u)",
+             (unsigned) this->broker_start_delay_, (unsigned) this->broker_restarts_);
+    return;
+  }
+
+  if (!this->broker_started_ && esphome::millis() - this->broker_start_at_ > this->broker_start_delay_) {
     if (this->broker_task_handle_ == nullptr) {
       // 12 KiB stack: mbedTLS handshakes inside the broker task can use 8 KiB+ on
       // their own, so 4 KiB overflowed as soon as a TLS client connected.
@@ -126,6 +144,11 @@ void MosquittoBroker::loop() {
   // Check connection status and reconnect if needed
   // Use longer retry interval to prevent socket exhaustion
   if (this->broker_started_) {
+    if (this->publish_state_ == mqtt::MQTT_CLIENT_CONNECTED) {
+      // The broker is up far enough to accept a client, so the next restart --
+      // if there ever is one -- starts from the short delay again.
+      this->broker_start_delay_ = 1000;
+    }
     if (this->esp_mqtt_client_ == nullptr && esphome::millis() >= this->connect_begin_) {
       // Initial connection attempt or retry after delay
       this->ensure_publish_client_();
@@ -135,10 +158,7 @@ void MosquittoBroker::loop() {
         ESP_LOGW(TAG, "Publish client not connected after %lu ms, reconnecting...", 
                  esphome::millis() - this->connect_begin_);
         // Clean up failed connection before retrying
-        esp_mqtt_client_stop(this->esp_mqtt_client_);
-        esp_mqtt_client_destroy(this->esp_mqtt_client_);
-        this->esp_mqtt_client_ = nullptr;
-        this->publish_state_ = mqtt::MQTT_CLIENT_DISCONNECTED;
+        this->teardown_publish_client_();
         this->connect_begin_ = esphome::millis();  // Reset retry timer
       }
     }
@@ -160,6 +180,7 @@ void MosquittoBroker::dump_config() {
 void MosquittoBroker::publish_message(const std::string &topic, const std::string &payload) {
   if (!this->broker_started_) {
     ESP_LOGW(TAG, "Broker not started, skipping publish");
+    this->publish_errors_.fetch_add(1);
     return;
   }
   if (this->publish_state_ != mqtt::MQTT_CLIENT_CONNECTED || this->esp_mqtt_client_ == nullptr) {
@@ -167,6 +188,7 @@ void MosquittoBroker::publish_message(const std::string &topic, const std::strin
   }
   if (this->publish_state_ != mqtt::MQTT_CLIENT_CONNECTED || this->esp_mqtt_client_ == nullptr) {
     ESP_LOGW(TAG, "Publish client not connected, skipping publish");
+    this->publish_errors_.fetch_add(1);
     return;
   }
 
@@ -178,6 +200,9 @@ void MosquittoBroker::publish_message(const std::string &topic, const std::strin
   int msg_id = esp_mqtt_client_publish(this->esp_mqtt_client_, translated.c_str(), payload.c_str(), payload.length(), 0, 0);
   if (msg_id < 0) {
     ESP_LOGW(TAG, "Publish failed for %s (error: %d)", translated.c_str(), msg_id);
+    this->publish_errors_.fetch_add(1);
+  } else {
+    this->app_messages_.fetch_add(1);
   }
 }
 
@@ -300,6 +325,10 @@ void MosquittoBroker::broker_task_(void *param) {
     return;
   }
   mosq_broker_run(&self->broker_config_);
+  // Only reached when the broker gave up. Clear the handle and say so, so
+  // loop() can create a new task rather than trusting a dead one.
+  self->broker_task_handle_ = nullptr;
+  self->broker_exited_.store(true);
   vTaskDelete(nullptr);
 }
 
@@ -318,6 +347,16 @@ void MosquittoBroker::on_broker_message_callback(char *client, char *topic, char
 void MosquittoBroker::handle_message_(char *topic, char *data, int len) {
   std::string topic_str(topic);
   std::string payload(data, len);
+
+  // `.../device/...` is what the battery itself publishes; everything else on
+  // the local broker is a command on its way in. Counting only the former
+  // makes this a liveness signal for the battery rather than for the relay's
+  // own traffic.
+  if (topic_str.find("/device/") != std::string::npos) {
+    this->device_messages_.fetch_add(1);
+    this->last_device_message_.store(esphome::millis());
+    this->has_device_message_.store(true);
+  }
 
   std::string translated = this->translate_device_to_external_(topic_str);
   if (translated != topic_str) {
@@ -356,6 +395,15 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
   }
 }
 
+void MosquittoBroker::teardown_publish_client_() {
+  if (this->esp_mqtt_client_ != nullptr) {
+    esp_mqtt_client_stop(this->esp_mqtt_client_);
+    esp_mqtt_client_destroy(this->esp_mqtt_client_);
+    this->esp_mqtt_client_ = nullptr;
+  }
+  this->publish_state_ = mqtt::MQTT_CLIENT_DISCONNECTED;
+}
+
 void MosquittoBroker::ensure_publish_client_() {
   if (!this->broker_started_) {
     return;
@@ -365,11 +413,7 @@ void MosquittoBroker::ensure_publish_client_() {
   }
   
   // Disconnect existing client if any
-  if (this->esp_mqtt_client_ != nullptr) {
-    esp_mqtt_client_stop(this->esp_mqtt_client_);
-    esp_mqtt_client_destroy(this->esp_mqtt_client_);
-    this->esp_mqtt_client_ = nullptr;
-  }
+  this->teardown_publish_client_();
   
   // Configure ESP-IDF MQTT client for TLS
   esp_mqtt_client_config_t mqtt_cfg = {};
