@@ -111,7 +111,8 @@ void MosquittoBroker::loop() {
   // first round runs a few seconds after boot rather than a full interval in,
   // so the entities do not stay unknown that long.
   const uint32_t now = esphome::millis();
-  if (now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
+  if (this->diagnostics_interval_ms_ != SCHEDULER_DONT_RUN &&  // `never`
+      now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
     this->last_diagnostics_ = now;
     this->diagnostics_started_ = true;
     this->publish_diagnostics_();

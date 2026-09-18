@@ -6,6 +6,8 @@
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 
+#include <atomic>
+
 #ifdef USE_BINARY_SENSOR
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #endif
@@ -87,14 +89,14 @@ class Marstack : public Component, public AsyncWebHandler {
   /// Requests answered on either transport. The battery polls the clock
   /// endpoint on a schedule of its own, so this keeps counting even when its
   /// MQTT connection is gone -- which is what tells the two apart.
-  uint32_t request_count() const { return this->request_count_; }
+  uint32_t request_count() const { return this->request_count_.load(); }
   /// Telemetry uploads answered (Venus on control firmware v150 and up).
-  uint32_t venus_upload_count() const { return this->venus_upload_count_; }
+  uint32_t venus_upload_count() const { return this->venus_upload_count_.load(); }
   /// Whether any request has arrived since boot. Guards last_request(), which
   /// is meaningless before the first one.
-  bool has_request() const { return this->has_request_; }
+  bool has_request() const { return this->has_request_.load(); }
   /// millis() when the last request arrived.
-  uint32_t last_request() const { return this->last_request_; }
+  uint32_t last_request() const { return this->last_request_.load(); }
 
   /// How often the diagnostic entities below are refreshed.
   void set_diagnostics_interval(uint32_t interval_ms) { this->diagnostics_interval_ms_ = interval_ms; }
@@ -133,12 +135,14 @@ class Marstack : public Component, public AsyncWebHandler {
   std::string time_suffix_{"04_0_0_0"};
   bool raw_responses_{true};
   bool accept_all_{false};
-  // Both transports dispatch on the ESPHome loop task (the TLS listener hands
-  // its parsed requests over through a queue), so these need no locking.
-  uint32_t request_count_{0};
-  uint32_t venus_upload_count_{0};
-  uint32_t last_request_{0};
-  bool has_request_{false};
+  // The TLS listener hands its parsed requests to the loop task through a
+  // queue, but web_server_idf calls handleRequest() straight from the HTTP
+  // server's own task, so dispatch() writes these from either task while the
+  // loop reads them to publish. Atomic rather than plain counters.
+  std::atomic<uint32_t> request_count_{0};
+  std::atomic<uint32_t> venus_upload_count_{0};
+  std::atomic<uint32_t> last_request_{0};
+  std::atomic<bool> has_request_{false};
   uint32_t diagnostics_interval_ms_{60000};
   uint32_t last_diagnostics_{0};
   bool diagnostics_started_{false};

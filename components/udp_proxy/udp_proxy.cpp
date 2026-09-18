@@ -166,22 +166,25 @@ void UdpProxy::stop() {
 void UdpProxy::loop() {
   const uint32_t now = millis();
 
-  // Ahead of the early return below, so a proxy that is not active still
-  // publishes that.
-  if (now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
+  if (!this->active_) {
+    // setup() runs before the network is necessarily up, and a bind can fail
+    // for reasons that pass. Without this the proxy would stay down until the
+    // next reboot, with nothing but one log line to say so.
+    this->retry_start();
+  }
+
+  // After the retry above, so a recovery shows up in the entities right away,
+  // and ahead of the return below, so a proxy that is still down publishes
+  // that.
+  if (this->diagnostics_interval_ms_ != SCHEDULER_DONT_RUN &&  // `never`
+      now - this->last_diagnostics_ >= (this->diagnostics_started_ ? this->diagnostics_interval_ms_ : 5000)) {
     this->last_diagnostics_ = now;
     this->diagnostics_started_ = true;
     this->publish_diagnostics();
   }
 
   if (!this->active_) {
-    // setup() runs before the network is necessarily up, and a bind can fail
-    // for reasons that pass. Without this the proxy would stay down until the
-    // next reboot, with nothing but one log line to say so.
-    this->retry_start();
-    if (!this->active_) {
-      return;
-    }
+    return;
   }
 
   // Process incoming packets on both sockets
