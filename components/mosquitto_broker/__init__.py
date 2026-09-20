@@ -6,7 +6,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 from esphome.components import esp32
-from esphome.const import CONF_ID, CONF_PORT, CONF_TRIGGER_ID
+from esphome.const import CONF_ID, CONF_PORT, CONF_TIMEOUT, CONF_TRIGGER_ID
 
 CODEOWNERS = ["@marsrelay"]
 DEPENDENCIES = ["esp32"]
@@ -14,6 +14,8 @@ DEPENDENCIES = ["esp32"]
 CONF_MOSQUITTO_BROKER_ID = "mosquitto_broker_id"
 CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
 CONF_ON_MESSAGE = "on_message"
+CONF_ON_DEVICE_TIMEOUT = "on_device_timeout"
+CONF_ON_DEVICE_RECOVERED = "on_device_recovered"
 CONF_MAX_CLIENTS = "max_clients"
 CONF_TLS = "tls"
 CONF_TLS_SKIP_VERIFICATION = "tls_skip_verification"
@@ -124,6 +126,23 @@ MosquittoMessageTrigger = mosquitto_broker_ns.class_(
     "MosquittoMessageTrigger", automation.Trigger.template(cg.std_string, cg.std_string)
 )
 PublishMessageAction = mosquitto_broker_ns.class_("PublishMessageAction", automation.Action)
+DeviceLivenessTrigger = mosquitto_broker_ns.class_(
+    "DeviceLivenessTrigger", automation.Trigger.template()
+)
+
+
+def _liveness_automation(default_timeout: str):
+    # Each automation carries its own timeout, so one config can warn at a
+    # short silence and act at a longer one.
+    return automation.validate_automation(
+        {
+            cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(DeviceLivenessTrigger),
+            cv.Optional(
+                CONF_TIMEOUT, default=default_timeout
+            ): cv.positive_time_period_milliseconds,
+        }
+    )
+
 
 CONFIG_SCHEMA = (
     cv.Schema(
@@ -139,6 +158,8 @@ CONFIG_SCHEMA = (
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MosquittoMessageTrigger),
                 }
             ),
+            cv.Optional(CONF_ON_DEVICE_TIMEOUT): _liveness_automation("15min"),
+            cv.Optional(CONF_ON_DEVICE_RECOVERED): _liveness_automation("15min"),
             cv.Optional(CONF_ID_MAPPINGS, default=[]): cv.All(
                 cv.ensure_list(
                     cv.Schema(
@@ -183,6 +204,19 @@ async def to_code(config):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         cg.add(var.add_message_trigger(trigger))
         await automation.build_automation(trigger, [(cg.std_string, "topic"), (cg.std_string, "payload")], conf)
+
+    for key, fire_on_timeout in (
+        (CONF_ON_DEVICE_TIMEOUT, True),
+        (CONF_ON_DEVICE_RECOVERED, False),
+    ):
+        for conf in config.get(key, []):
+            trigger = cg.new_Pvariable(
+                conf[CONF_TRIGGER_ID],
+                conf[CONF_TIMEOUT].total_milliseconds,
+                fire_on_timeout,
+            )
+            cg.add(var.add_liveness_trigger(trigger))
+            await automation.build_automation(trigger, [], conf)
 
     for mapping in config.get(CONF_ID_MAPPINGS, []):
         cg.add(

@@ -166,6 +166,13 @@ void UdpProxy::stop() {
 void UdpProxy::loop() {
   const uint32_t now = millis();
 
+  // Evaluated every loop, ahead of everything that can return early, and
+  // independent of the diagnostics tick: an automation should still fire when
+  // `diagnostics_interval` is long, or `never`.
+  for (auto *trigger : this->liveness_triggers_) {
+    trigger->update(this->has_response_, this->last_response_);
+  }
+
   if (!this->active_) {
     // setup() runs before the network is necessarily up, and a bind can fail
     // for reasons that pass. Without this the proxy would stay down until the
