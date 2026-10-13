@@ -86,6 +86,7 @@ With Marsrelay up and running, power-cycle the battery once: it clears the batte
 Then, in MQTT Explorer (connected to your home broker), wait for a message on `marstek_energy/<deviceType>/device/<deviceId>/ctrl` — or `hame_energy/...` on older firmware. **Give this at least 30 minutes** from the power cycle — the first message usually arrives within 20, but longer is normal. Note down `deviceType` and `deviceId`.
 
 - Ignore `.../App/...` topics — those are commands *sent by* hm2mqtt, not by your battery.
+- On a Venus, the Marsrelay log also shows both as soon as the battery's MQTT connection is up: `Battery connected on 'marstek_energy/<deviceType>/App/<deviceId>/ctrl'`.
 - Nothing appearing? See [troubleshooting](docs/troubleshooting.md#no-device-topic-ever-appears). You can also read the ID from Hame Relay's startup logs instead of waiting (see [finding the encrypted ID](#finding-the-encrypted-id)).
 
 ### 4. Configure hm2mqtt

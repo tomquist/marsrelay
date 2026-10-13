@@ -36,14 +36,14 @@ Work through this checklist:
 5. **Can Marsrelay reach your home MQTT broker?** Verify `mqtt_broker`, `mqtt_username` and `mqtt_password` in the substitutions, and check the ESPHome logs for MQTT connection errors.
 6. **Is the ESP32 stable?** Watch the logs via USB for a crash loop, and make sure the `psram` settings match your board.
 
-If you only need the device ID while you keep debugging, get it from Hame Relay's startup logs instead of waiting (see [finding the encrypted ID](../README.md#finding-the-encrypted-id)).
+If you only need the device ID while you keep debugging, check the Marsrelay log for `Battery connected on 'marstek_energy/<deviceType>/App/<deviceId>/ctrl'` (on a Venus, logged as soon as the battery's MQTT connection is up), or get it from Hame Relay's startup logs instead of waiting (see [finding the encrypted ID](../README.md#finding-the-encrypted-id)).
 
 ## Repeating getDateInfoeu.php requests and UDP proxy log lines
 
 Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. Two related things that are easy to misread:
 
 - Messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) are **diagnostic logs** of the battery's HTTP requests — not battery data.
-- The battery does **not** push telemetry on its own. Data only appears under `.../device/...` when something requests it — which is what [hm2mqtt](https://github.com/tomquist/hm2mqtt) does (e.g. `cd=1`). Without hm2mqtt, seeing nothing but `request` messages is expected.
+- The battery publishes under `.../device/...` on its own only now and then. Steady data needs [hm2mqtt](https://github.com/tomquist/hm2mqtt), which polls it (`cd=1`). Until the battery's first message, seeing nothing but `request` messages is expected.
 
 ## A Venus keeps dropping off the network
 

@@ -14,6 +14,12 @@ namespace esphome {
 namespace mosquitto_broker {
 
 static const char *const TAG = "mosquitto_broker";
+/// Client id of the relay's own client on the local broker. Messages it
+/// publishes are commands from hm2mqtt, never the battery's own.
+static const char *const PUBLISH_CLIENT_ID = "marsrelay-publish";
+/// How long to wait before handing the battery its own poll back. A cloud
+/// broker's round trip; the battery ignores anything that arrives sooner.
+static const uint32_t SELF_POLL_RESEND_DELAY_MS = 1000;
 static MosquittoBroker *global_broker = nullptr;
 
 // Embedded self-signed certificate and key for TLS
@@ -124,6 +130,8 @@ void MosquittoBroker::loop() {
     this->diagnostics_started_ = true;
     this->publish_diagnostics_();
   }
+
+  this->resend_self_poll_();
 
   if (this->broker_exited_.load()) {
     // mosq_broker_run() returned by itself: the broker is gone, but nothing
@@ -254,13 +262,39 @@ void MosquittoBroker::publish_message(const std::string &topic, const std::strin
     ESP_LOGV(TAG, "Translated external topic '%s' to device topic '%s'", topic.c_str(), translated.c_str());
   }
 
-  int msg_id = esp_mqtt_client_publish(this->esp_mqtt_client_, translated.c_str(), payload.c_str(), payload.length(), 0, 0);
+  this->publish_local_(translated, payload);
+}
+
+void MosquittoBroker::publish_local_(const std::string &topic, const std::string &payload) {
+  int msg_id = esp_mqtt_client_publish(this->esp_mqtt_client_, topic.c_str(), payload.c_str(), payload.length(), 0, 0);
   if (msg_id < 0) {
-    ESP_LOGW(TAG, "Publish failed for %s (error: %d)", translated.c_str(), msg_id);
+    ESP_LOGW(TAG, "Publish failed for %s (error: %d)", topic.c_str(), msg_id);
     this->publish_errors_.fetch_add(1);
   } else {
     this->app_messages_.fetch_add(1);
   }
+}
+
+void MosquittoBroker::resend_self_poll_() {
+  std::string topic;
+  std::string payload;
+  {
+    LockGuard guard(this->self_poll_lock_);
+    if (!this->self_poll_pending_ || (int32_t) (esphome::millis() - this->self_poll_at_) < 0) {
+      return;
+    }
+    this->self_poll_pending_ = false;
+    topic = std::move(this->self_poll_topic_);
+    payload = std::move(this->self_poll_payload_);
+  }
+  if (!this->is_publish_client_connected()) {
+    ESP_LOGW(TAG, "Publish client not connected, cannot resend the battery's poll");
+    this->publish_errors_.fetch_add(1);
+    return;
+  }
+  // Already a device-side topic: no id translation.
+  ESP_LOGD(TAG, "Resending the battery's poll on '%s'", topic.c_str());
+  this->publish_local_(topic, payload);
 }
 
 namespace {
@@ -390,18 +424,17 @@ void MosquittoBroker::broker_task_(void *param) {
 }
 
 void MosquittoBroker::on_broker_message_callback(char *client, char *topic, char *data, int len, int qos, int retain) {
-  (void) client;
   (void) qos;
   (void) retain;
   if (topic == nullptr || data == nullptr) {
     return;
   }
   if (global_broker != nullptr) {
-    global_broker->handle_message_(topic, data, len);
+    global_broker->handle_message_(client != nullptr ? client : "", topic, data, len);
   }
 }
 
-void MosquittoBroker::handle_message_(char *topic, char *data, int len) {
+void MosquittoBroker::handle_message_(const char *client, char *topic, char *data, int len) {
   std::string topic_str(topic);
   std::string payload(data, len);
 
@@ -413,6 +446,23 @@ void MosquittoBroker::handle_message_(char *topic, char *data, int len) {
     this->device_messages_.fetch_add(1);
     this->last_device_message_.store(esphome::millis());
     this->has_device_message_.store(true);
+  }
+
+  // Right after connecting, the battery polls itself: it publishes `cd=01` to
+  // its own `.../App/<id>/ctrl` and expects the broker to deliver it back, upon
+  // which it answers on `.../device/...`. But it only starts reading incoming
+  // messages once that publish has completed, and a broker on the same access
+  // point echoes it before then -- so the battery drops its own poll and stays
+  // silent until something else polls it. Hand the poll back once it listens.
+  if (strcmp(client, PUBLISH_CLIENT_ID) != 0 && topic_str.find("/App/") != std::string::npos &&
+      (payload == "cd=01" || payload == "cd=1")) {
+    ESP_LOGI(TAG, "Battery connected on '%s'; resending its own poll in %u ms", topic_str.c_str(),
+             (unsigned) SELF_POLL_RESEND_DELAY_MS);
+    LockGuard guard(this->self_poll_lock_);
+    this->self_poll_topic_ = topic_str;
+    this->self_poll_payload_ = payload;
+    this->self_poll_at_ = esphome::millis() + SELF_POLL_RESEND_DELAY_MS;
+    this->self_poll_pending_ = true;
   }
 
   std::string translated = this->translate_device_to_external_(topic_str);
@@ -497,7 +547,7 @@ void MosquittoBroker::ensure_publish_client_() {
     mqtt_cfg.broker.address.transport = MQTT_TRANSPORT_OVER_TCP;
   }
   
-  mqtt_cfg.credentials.client_id = "marsrelay-publish";
+  mqtt_cfg.credentials.client_id = PUBLISH_CLIENT_ID;
   mqtt_cfg.session.keepalive = 60;
   mqtt_cfg.session.disable_clean_session = false;
   

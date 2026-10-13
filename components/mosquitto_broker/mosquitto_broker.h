@@ -9,6 +9,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/mqtt/mqtt_backend_esp32.h"
 #include "esphome/components/mqtt/mqtt_client.h"
 
@@ -126,7 +127,8 @@ class MosquittoBroker : public Component {
   /// Messages the battery published on a `.../device/...` topic, i.e. the data
   /// the whole relay exists to move.
   uint32_t device_message_count() const { return this->device_messages_.load(); }
-  /// Messages relayed towards the battery through publish_message().
+  /// Messages relayed towards the battery: commands through publish_message(),
+  /// and the battery's own poll handed back to it.
   uint32_t app_message_count() const { return this->app_messages_.load(); }
   /// publish_message() calls that never reached the broker.
   uint32_t publish_error_count() const { return this->publish_errors_.load(); }
@@ -165,7 +167,9 @@ class MosquittoBroker : public Component {
   static void broker_task_(void *param);
   static void on_broker_message_callback(char *client, char *topic, char *data, int len, int qos, int retain);
 
-  void handle_message_(char *topic, char *data, int len);
+  void handle_message_(const char *client, char *topic, char *data, int len);
+  void publish_local_(const std::string &topic, const std::string &payload);
+  void resend_self_poll_();
   void ensure_publish_client_();
   void teardown_publish_client_();
   void publish_diagnostics_();
@@ -207,6 +211,14 @@ class MosquittoBroker : public Component {
   std::atomic<uint32_t> publish_errors_{0};
   std::atomic<uint32_t> last_device_message_{0};
   std::atomic<bool> has_device_message_{false};
+
+  // The battery's own poll, queued by the broker task for loop() to send back
+  // once the battery is ready to read it. See handle_message_().
+  Mutex self_poll_lock_;
+  std::string self_poll_topic_;
+  std::string self_poll_payload_;
+  uint32_t self_poll_at_{0};
+  bool self_poll_pending_{false};
 };
 
 template<typename... Ts> class PublishMessageAction : public Action<Ts...> {
