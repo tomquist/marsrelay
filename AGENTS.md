@@ -21,10 +21,17 @@ into the system interpreter fails outright (e.g. a broken `setuptools`
 ## Validate changes
 
 ```sh
-esphome config marsrelay_esp32s3.yaml              # main config must be valid
+scripts/local-config.sh                            # main config, pointed at this checkout
+esphome config marsrelay_esp32s3.local.yaml        # main config must be valid
 esphome config tests/fixtures/shelly_emulator.yaml # example config must be valid
 pytest -q                                          # component tests (run from repo root)
 ```
+
+`marsrelay_esp32s3.yaml` is what users download, so it fetches the components
+from `github://tomquist/marsrelay@main`. Validating it directly tests `main`,
+not your changes; `scripts/local-config.sh` writes a gitignored copy that uses
+`./components` instead. Keep the shipped source line as is: the script, the
+tests and CI's `build-remote` job all rewrite it.
 
 `esphome config` validates + generates C++ but does not compile firmware; a full
 firmware build (and real-device flash) only happens via `esphome/build-action`
