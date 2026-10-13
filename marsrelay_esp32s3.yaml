@@ -45,10 +45,10 @@ esp32:
       CONFIG_LWIP_TCP_MSL: "30"  # Reduce TIME_WAIT timeout from default 60s to 30s (in seconds)
       CONFIG_LWIP_SOCKET_OFFSET: "6"  # Required for esp_vfs_console compatibility (must be >= 6 for esp_vfs_console)
 
+# ESPHome fetches Marsrelay's components from GitHub (and checks for updates
+# once a day), so this file is all you need.
 external_components:
-  - source:
-      type: local
-      path: ./components
+  - source: github://tomquist/marsrelay@main
 
 logger:
 

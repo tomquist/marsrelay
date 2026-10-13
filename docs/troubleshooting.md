@@ -1,5 +1,24 @@
 # Troubleshooting
 
+## "Platform not found" or "Component not found" when validating the config
+
+ESPHome can't find a Marsrelay component the YAML uses, e.g. `Platform not found: 'binary_sensor.mosquitto_broker'`. The config is newer than the components ESPHome is building with. Check the `external_components:` source in your YAML:
+
+- **`type: local` / `path: ./components`:** your copy of the `components` folder is older than the config. Switch to the GitHub source instead (see [Flash Marsrelay](../README.md#1-flash-marsrelay)):
+
+  ```yaml
+  external_components:
+    - source: github://tomquist/marsrelay@main
+  ```
+
+- **`github://tomquist/marsrelay@main`:** ESPHome re-downloads the components only once a day, so right after an update it may still use its cached copy. Add `refresh: always` next to `source:`, validate once, then remove it again:
+
+  ```yaml
+  external_components:
+    - source: github://tomquist/marsrelay@main
+      refresh: always
+  ```
+
 ## The battery doesn't react to commands (e.g. cd=1)
 
 Marsrelay's log shows `Received control message: ...` but the battery never answers: the command reaches Marsrelay but doesn't match the topic the battery listens on. Compare the `.../device/<deviceId>/...` topic the battery publishes on (see [finding your device information](../README.md#3-find-your-device-information)) with the topic your commands arrive on. Two common causes:

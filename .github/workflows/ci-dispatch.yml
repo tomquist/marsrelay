@@ -39,11 +39,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # The shipped config fetches components from GitHub main; build this
+      # checkout's components instead.
+      - name: Point config at local components
+        run: scripts/local-config.sh
       - name: Build firmware
         uses: esphome/build-action@v6
         with:
           version: ${{ inputs.esphome_version }}
-          yaml-file: marsrelay_esp32s3.yaml
+          yaml-file: marsrelay_esp32s3.local.yaml
 
   build-remote:
     runs-on: ubuntu-latest

@@ -184,5 +184,5 @@ Done. Review the staged changes, then commit the re-apply:
 
 Then validate the build:
 
-    esphome config marsrelay_esp32s3.yaml
+    scripts/local-config.sh && esphome config marsrelay_esp32s3.local.yaml
 EOF

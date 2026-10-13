@@ -73,7 +73,9 @@ Download [`marsrelay_esp32s3.yaml`](marsrelay_esp32s3.yaml) and adjust the `subs
 - **`udp_proxy_port`**: depends on your power meter / firmware (see the comment in the file)
 - **`psram`**: must match your board ([details](https://esphome.io/components/psram/))
 
-Then build and flash it with ESPHome.
+Then build and flash it with ESPHome. In the ESPHome Device Builder, create a new device and replace its YAML with this file. That's the only file you need: the config pulls Marsrelay's components straight from this repository (`source: github://tomquist/marsrelay@main`), and each build picks up the latest version (ESPHome re-checks once a day).
+
+If your config is from an older version and still has `type: local` / `path: ./components` under `external_components:`, replace that source with the GitHub one above rather than copying the `components` folder around.
 
 ### 2. Connect the battery
 
@@ -374,6 +376,7 @@ gating on both, as above.
 The [diagnostic entities](#diagnostics) show which part stopped. See
 [docs/troubleshooting.md](docs/troubleshooting.md) for:
 
+- ["Platform not found" when validating the config](docs/troubleshooting.md#platform-not-found-or-component-not-found-when-validating-the-config)
 - [The battery doesn't react to commands (e.g. cd=1)](docs/troubleshooting.md#the-battery-doesnt-react-to-commands-eg-cd1)
 - [No /device/ topic ever appears](docs/troubleshooting.md#no-device-topic-ever-appears)
 - [Repeating getDateInfoeu.php requests and UDP proxy log lines](docs/troubleshooting.md#repeating-getdateinfoeuphp-requests-and-udp-proxy-log-lines) (spoiler: that's normal)
