@@ -30,6 +30,8 @@ The outgoing direction needs no change: the `mosquitto_broker` `on_message` forw
 Work through this checklist:
 
 1. **Are you looking at the right topics?** Only `.../device/...` topics come from the battery — `.../App/...` topics are commands *from* hm2mqtt. Watch both the `marstek_energy` and `hame_energy` prefixes.
+
+   If you are watching the battery's own traffic (a packet capture, or verbose logging on the ESP32): right after it connects, the battery publishes `cd=01` to its *own* `.../App/<deviceId>/ctrl` topic. That is the battery polling itself, not data. Marsrelay deliberately doesn't forward it, and the battery's answer arrives on `.../device/...` like any other.
 2. **Power-cycle the battery once Marsrelay is up.** The restart wipes the battery's DNS cache: it looks the cloud hostnames up again and gets Marsrelay's IP instead of the cached one. A battery that joined the access point before Marsrelay was running can otherwise sit in a stale state for a long time. Boot the ESP32 first, give it a minute, then switch the battery off and on again — do this before you start waiting.
 3. **Wait long enough after that power cycle.** The battery usually publishes within 20 minutes, but half an hour or more happens ([#42](https://github.com/tomquist/marsrelay/issues/42)). Keep MQTT Explorer connected the whole time.
 4. **Is the battery really connected to the Marsrelay access point?** The Marstek app sometimes reports a successful WiFi change even though the battery didn't connect. When it is connected, the Marsrelay log shows its HTTP requests, e.g. `HTTP GET /app/neng/getDateInfoeu.php`. If those appear but no `/device/` topic does, the battery is talking to Marsrelay and only MQTT is still pending — keep waiting and check the next points.
@@ -43,7 +45,7 @@ If you only need the device ID while you keep debugging, get it from Hame Relay'
 Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. Two related things that are easy to misread:
 
 - Messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) are **diagnostic logs** of the battery's HTTP requests — not battery data.
-- The battery does **not** push telemetry on its own. Data only appears under `.../device/...` when something requests it — which is what [hm2mqtt](https://github.com/tomquist/hm2mqtt) does (e.g. `cd=1`). Without hm2mqtt, seeing nothing but `request` messages is expected.
+- The battery publishes under `.../device/...` on its own only now and then, starting with the answer to its own `cd=01` right after it connects. Steady data needs [hm2mqtt](https://github.com/tomquist/hm2mqtt), which polls it (`cd=1`). Until that first message, seeing nothing but `request` messages is expected.
 
 ## A Venus keeps dropping off the network
 

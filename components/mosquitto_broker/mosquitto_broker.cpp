@@ -405,10 +405,11 @@ void MosquittoBroker::handle_message_(char *topic, char *data, int len) {
   std::string topic_str(topic);
   std::string payload(data, len);
 
-  // `.../device/...` is what the battery itself publishes; everything else on
-  // the local broker is a command on its way in. Counting only the former
-  // makes this a liveness signal for the battery rather than for the relay's
-  // own traffic.
+  // `.../device/...` is the battery's data; everything on `.../App/...` is a
+  // command on its way in -- including the `cd=01` the battery publishes to
+  // its own App topic right after connecting, which it then answers on
+  // `.../device/...`. Counting only the former makes this a liveness signal
+  // for the battery rather than for the relay's own traffic.
   if (topic_str.find("/device/") != std::string::npos) {
     this->device_messages_.fetch_add(1);
     this->last_device_message_.store(esphome::millis());
