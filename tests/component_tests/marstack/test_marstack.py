@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from esphome.components import esp32
 from esphome.config import read_config
 from esphome.core import CORE
 
@@ -72,3 +73,20 @@ def test_hold_time_zero_is_allowed(tmp_path):
 def test_https_port_clashing_with_web_server_is_rejected(tmp_path):
     path = _derive(tmp_path, ("port: 8080", "port: 443"))
     assert _read(path) is None
+
+
+@pytest.mark.skipif(
+    not hasattr(esp32, "require_mbedtls_tls_server"),
+    reason="ESPHome < 2026.10 leaves mbedTLS at the IDF defaults",
+)
+def test_https_keeps_the_mbedtls_server_role(generate_main):
+    # Without a request, ESPHome compiles TLS out (or trims it to the client
+    # role), and every handshake with the battery fails with -0x7100.
+    generate_main(str(FIXTURE))
+    options = CORE.data[esp32.KEY_ESP32][esp32.KEY_SDKCONFIG_OPTIONS]
+    for option in (
+        "CONFIG_MBEDTLS_TLS_DISABLED",
+        "CONFIG_MBEDTLS_TLS_CLIENT_ONLY",
+        "CONFIG_MBEDTLS_KEY_EXCHANGE_RSA",
+    ):
+        assert option not in options

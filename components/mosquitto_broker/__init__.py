@@ -177,6 +177,24 @@ CONFIG_SCHEMA = (
 )
 
 
+def _request_tls_server():
+    """Keep mbedTLS able to accept TLS connections.
+
+    From ESPHome 2026.10 the build trims mbedTLS to what components request:
+    TLS compiles out entirely without a request, and is cut to the client role
+    and stripped of the legacy handshake extras with one. A server built like
+    that fails every handshake (mbedtls_ssl_handshake returns -0x7100). The
+    batteries are TLS clients we cannot vet, so keep the extras too, as on
+    earlier releases. Older ESPHome leaves mbedTLS at the IDF defaults and has
+    none of these helpers.
+    """
+    if not hasattr(esp32, "require_mbedtls_tls_server"):
+        return
+    esp32.request_tls()
+    esp32.require_mbedtls_tls_server()
+    esp32.require_mbedtls_tls_extras()
+
+
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
@@ -199,6 +217,8 @@ async def to_code(config):
     )
 
     esp32.add_idf_component(name="espressif/mosquitto", ref="2.0.20")
+    if config[CONF_TLS]:
+        _request_tls_server()
 
     for conf in config.get(CONF_ON_MESSAGE, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)

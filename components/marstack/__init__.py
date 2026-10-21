@@ -4,7 +4,7 @@ import esphome.codegen as cg
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome import automation
-from esphome.components import web_server_base
+from esphome.components import esp32, web_server_base
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 from esphome.const import (
     CONF_ID,
@@ -158,6 +158,24 @@ def _final_validate(config: ConfigType) -> ConfigType:
 FINAL_VALIDATE_SCHEMA = _final_validate
 
 
+def _request_tls_server():
+    """Keep mbedTLS able to accept TLS connections.
+
+    From ESPHome 2026.10 the build trims mbedTLS to what components request:
+    TLS compiles out entirely without a request, and is cut to the client role
+    and stripped of the legacy handshake extras with one. A server built like
+    that fails every handshake (mbedtls_ssl_handshake returns -0x7100). The
+    batteries are TLS clients we cannot vet, so keep the extras too, as on
+    earlier releases. Older ESPHome leaves mbedTLS at the IDF defaults and has
+    none of these helpers.
+    """
+    if not hasattr(esp32, "require_mbedtls_tls_server"):
+        return
+    esp32.request_tls()
+    esp32.require_mbedtls_tls_server()
+    esp32.require_mbedtls_tls_extras()
+
+
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
     var = cg.new_Pvariable(config[CONF_ID], parent)
@@ -215,6 +233,7 @@ async def to_code(config):
         cg.add(server.set_hold_time(https[CONF_HOLD_TIME].total_milliseconds))
         cg.add(server.set_max_body(https[CONF_MAX_BODY]))
         cg.add(server.set_max_connections(https[CONF_MAX_CONNECTIONS]))
+        _request_tls_server()
 
 
 FILTER_SOURCE_FILES = filter_source_files_from_platform(
