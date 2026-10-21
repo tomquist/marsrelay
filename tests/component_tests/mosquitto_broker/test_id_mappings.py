@@ -1,6 +1,8 @@
 from pathlib import Path
 
 import pytest
+from esphome.components import esp32
+from esphome.core import CORE
 
 
 FIXTURE = (
@@ -21,6 +23,30 @@ def test_mosquitto_broker_id_mappings_generation(generate_main):
     assert "8009eb5b0d30c3286fabbb5f3e705937" in main_cpp
     assert "88e9406cbd7abae00b8aece0511a16bf" in main_cpp
 
+
+
+@pytest.mark.skipif(
+    not hasattr(esp32, "require_mbedtls_tls_server"),
+    reason="ESPHome < 2026.10 leaves mbedTLS at the IDF defaults",
+)
+def test_tls_keeps_the_mbedtls_server_role(generate_main, tmp_path):
+    # Trimmed to the client role, the broker fails every handshake with -0x7100.
+    config = FIXTURE.read_text()
+    assert "  tls: false\n" in config
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        config.replace("  tls: false\n", "  tls: true\n").replace(
+            "path: ../../components", f"path: {FIXTURE.parents[2] / 'components'}"
+        )
+    )
+    generate_main(str(path))
+    options = CORE.data[esp32.KEY_ESP32][esp32.KEY_SDKCONFIG_OPTIONS]
+    for option in (
+        "CONFIG_MBEDTLS_TLS_DISABLED",
+        "CONFIG_MBEDTLS_TLS_CLIENT_ONLY",
+        "CONFIG_MBEDTLS_KEY_EXCHANGE_RSA",
+    ):
+        assert option not in options
 
 def _validate(mappings):
     from components.mosquitto_broker import _validate_id_mappings, _validate_id_segment
