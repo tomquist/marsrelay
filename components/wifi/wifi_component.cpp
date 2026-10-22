@@ -919,23 +919,34 @@ void WiFiComponent::loop() {
         provisioning::global_provisioning_manager != nullptr && provisioning::global_provisioning_manager->closed();
 #endif
     if (this->has_ap() && !this->ap_setup_ && !provisioning_closed) {
-      // marsrelay: always start the fallback AP so it runs alongside STA,
-      // instead of only starting it after ap_timeout_ since last_connected_.
-      ESP_LOGI(TAG, "Starting fallback AP");
+      // marsrelay: start the fallback AP right away so it runs alongside STA,
+      // instead of only after ap_timeout_ since last_connected_. A radio that
+      // can't run both keeps upstream's timing, or the AP would retake the
+      // radio from every attempt pause_exclusive_ap_() hands the networks.
+      if (!WIFI_AP_EXCLUSIVE || (this->ap_timeout_ != 0 &&
+          (now - this->last_connected_ > this->ap_timeout_)
 #ifdef USE_WIFI_AP_EXCLUSIVE
-      this->ap_exclusive_changed_ = now;
+          // After a pause, or a start that failed, the networks get a full
+          // ap_timeout before the AP is tried again.
+          && now - this->ap_exclusive_changed_ > this->ap_timeout_
 #endif
-      this->setup_ap_config_();
+      )) {
+        ESP_LOGI(TAG, "Starting fallback AP");
+#ifdef USE_WIFI_AP_EXCLUSIVE
+        this->ap_exclusive_changed_ = now;
+#endif
+        this->setup_ap_config_();
 #ifdef USE_CAPTIVE_PORTAL
-      // Where the AP runs on its own, a portal with no AP behind it would
-      // only stretch the cooldowns.
-      if (captive_portal::global_captive_portal != nullptr && (!WIFI_AP_EXCLUSIVE || this->ap_setup_)) {
-        // Reset so we force one full scan after captive portal starts
-        // (previous scans were filtered because captive portal wasn't active yet)
-        this->has_completed_scan_after_captive_portal_start_ = false;
-        captive_portal::global_captive_portal->start();
-      }
+        // Where the AP runs on its own, a portal with no AP behind it would
+        // only stretch the cooldowns.
+        if (captive_portal::global_captive_portal != nullptr && (!WIFI_AP_EXCLUSIVE || this->ap_setup_)) {
+          // Reset so we force one full scan after captive portal starts
+          // (previous scans were filtered because captive portal wasn't active yet)
+          this->has_completed_scan_after_captive_portal_start_ = false;
+          captive_portal::global_captive_portal->start();
+        }
 #endif
+      }
     }
 #endif  // USE_WIFI_AP
 
