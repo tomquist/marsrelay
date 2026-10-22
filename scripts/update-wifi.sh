@@ -53,12 +53,20 @@ if [[ -n "$(git -C "$ROOT" status --porcelain -- "$WIFI_DIR")" ]]; then
 fi
 
 echo "==> Downloading pristine esphome wifi component @ ${VERSION}"
-# Drop the previously vendored upstream files first so an upstream rename or
-# removal is reflected (our own files are left untouched), then fetch the folder.
+# Download into a scratch dir first, so a failed listing or download (rate limit,
+# outage) stops here with components/wifi and history untouched.
+download_tmp="$(mktemp -d)"
+trap 'rm -rf "$download_tmp"' EXIT
+if ! wifi_download_upstream "$VERSION" "$download_tmp"; then
+  echo "ERROR: could not download esphome ${VERSION}'s wifi component; nothing was changed." >&2
+  exit 1
+fi
+# Drop the previously vendored upstream files so an upstream rename or removal
+# is reflected (our own files are left untouched), then move the download in.
 while IFS= read -r rel; do
   git -C "$ROOT" rm -q -- "components/wifi/${rel}"
 done < <(wifi_vendored_files "$ROOT")
-wifi_download_upstream "$VERSION" "$WIFI_DIR"
+cp -R "$download_tmp/." "$WIFI_DIR/"
 echo "${VERSION}" > "${WIFI_DIR}/UPSTREAM_VERSION"
 
 echo "==> Committing pristine vendor import"

@@ -42,24 +42,38 @@ _wifi_api_curl() {  # _wifi_api_curl <url>
 # List the component's files at a git ref, one path (relative to the component
 # dir) per line, by walking the upstream directory and recursing into any
 # subdirectories. Output is sorted for stable diffing/comparison.
+#
+# Fails, rather than printing nothing, when the listing can't be fetched: to a
+# caller an empty list reads as "upstream has no files", which update-wifi.sh
+# would vendor as a deletion and check-wifi-upstream.sh as "unchanged".
 wifi_upstream_files() {  # wifi_upstream_files <ref>
-  _wifi_upstream_walk "$1" "" | sort
+  local files
+  files="$(_wifi_upstream_walk "$1" "")" || return 1
+  if [[ -z "$files" ]]; then
+    echo "ERROR: upstream ${WIFI_UPSTREAM_PATH} lists no files at ${1}" >&2
+    return 1
+  fi
+  sort <<< "$files"
 }
 
 _wifi_upstream_walk() {  # _wifi_upstream_walk <ref> <subdir>
   local ref="$1" sub="${2:-}"
   local url="https://api.github.com/repos/esphome/esphome/contents/${WIFI_UPSTREAM_PATH}${sub:+/$sub}?ref=${ref}"
   local entries etype name rel
+  # Callers run this where `set -e` is off, so every failure is returned by hand.
   entries="$(_wifi_api_curl "$url" | python3 -c '
 import json, sys
 for e in json.load(sys.stdin):
     print(e["type"] + "\t" + e["name"])
-')"
+')" || {
+    echo "ERROR: could not list upstream ${WIFI_UPSTREAM_PATH}${sub:+/$sub} at ${ref}" >&2
+    return 1
+  }
   while IFS=$'\t' read -r etype name; do
     [[ -n "$name" ]] || continue
     rel="${sub:+$sub/}$name"
     if [[ "$etype" == "dir" ]]; then
-      _wifi_upstream_walk "$ref" "$rel"
+      _wifi_upstream_walk "$ref" "$rel" || return 1
     else
       printf '%s\n' "$rel"
     fi
@@ -72,13 +86,21 @@ for e in json.load(sys.stdin):
 # clobber the fork's own when <dest> is the live components/wifi dir; such a
 # collision still surfaces as drift in check-wifi-fork.sh (which lists the full
 # upstream set), it just isn't silently written over here.
+#
+# Returns non-zero if the listing or any file fails to download, in which case
+# <dest> may hold a partial copy.
 wifi_download_upstream() {  # wifi_download_upstream <ref> <dest>
-  local ref="$1" dest="$2" rel
+  local ref="$1" dest="$2" files rel
+  # Listed up front, not read from `< <(...)`, which would drop a failed listing.
+  files="$(wifi_upstream_files "$ref")" || return 1
   while IFS= read -r rel; do
     wifi_is_local_path "$rel" && continue
     mkdir -p "$dest/$(dirname "$rel")"
-    wifi_download_upstream_file "$ref" "$rel" "$dest/$rel"
-  done < <(wifi_upstream_files "$ref")
+    wifi_download_upstream_file "$ref" "$rel" "$dest/$rel" || {
+      echo "ERROR: could not download upstream ${WIFI_UPSTREAM_PATH}/${rel} at ${ref}" >&2
+      return 1
+    }
+  done <<< "$files"
 }
 
 # Download a single component file at a ref to <dest-file>. Unlike
