@@ -7,8 +7,8 @@ fallback that shuts down as soon as the STA associates.
 
 ## Current base
 
-- **Upstream version:** `2026.9.0`
-- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.9.0/esphome/components/wifi>
+- **Upstream version:** `2026.10.0`
+- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.10.0/esphome/components/wifi>
 
 The pinned version is stored in [`UPSTREAM_VERSION`](./UPSTREAM_VERSION), which
 is the single source of truth used by the tooling below.
@@ -27,7 +27,9 @@ with a `// marsrelay:` comment so they're easy to find:
 1. **Always start the fallback AP.**
    Upstream only starts the AP after `ap_timeout_` has elapsed since
    `last_connected_`. We start it unconditionally so it's available from boot,
-   regardless of STA state.
+   regardless of STA state. Radios that can't run AP and STA together
+   (`USE_WIFI_AP_EXCLUSIVE`, i.e. LN882x) keep upstream's timing, since there
+   the AP and the networks have to take turns.
 
 2. **Keep the AP enabled after STA connects.**
    Upstream calls `this->wifi_mode_({}, false)` to disable the AP once the STA

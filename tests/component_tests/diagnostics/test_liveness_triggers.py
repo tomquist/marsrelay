@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from esphome.core import CORE
+
 from tests.component_tests.conftest import generate_main
 
 
@@ -44,4 +46,10 @@ def test_restart_is_gated_on_the_other_liveness_signal(generate_main):
     # checks the MQTT binary sensor before rebooting on an HTTP timeout.
     assert "restart::RestartSwitch" in main_cpp
     assert "local_broker->set_device_active_binary_sensor(" in main_cpp
-    assert "BinarySensorCondition" in main_cpp
+    # ESPHome 2026.10 generates binary_sensor.is_off as a static predicate in
+    # the global section instead of a BinarySensorCondition in main().
+    generated = main_cpp + CORE.cpp_global_section
+    assert (
+        "BinarySensorCondition" in generated
+        or "battery_mqtt_data->state == false" in generated
+    )
