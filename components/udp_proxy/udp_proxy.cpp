@@ -31,6 +31,7 @@ float UdpProxy::get_setup_priority() const {
 void UdpProxy::dump_config() {
   ESP_LOGCONFIG(TAG, "UDP Proxy:");
   ESP_LOGCONFIG(TAG, "  Port: %d", this->port_);
+  ESP_LOGCONFIG(TAG, "  Meter Network: %s", this->meter_on_ap_ ? "access point" : "home");
   ESP_LOGCONFIG(TAG, "  Session Timeout: %d ms", this->session_timeout_ms_);
   ESP_LOGCONFIG(TAG, "  Active: %s", this->active_ ? "Yes" : "No");
 }
@@ -59,6 +60,18 @@ bool UdpProxy::is_ap_network(const network::IPAddress &ip) {
   return (ap_addr.addr & mask) == (check_addr.addr & mask);
 }
 
+uint32_t UdpProxy::request_destination() {
+  if (!this->meter_on_ap_) {
+    // Leaves through the default interface, which is the STA one.
+    return INADDR_BROADCAST;  // 255.255.255.255
+  }
+  // 255.255.255.255 would also leave through the STA interface. The AP
+  // subnet's own broadcast address is routed to the AP. Same /24 assumption
+  // as is_ap_network().
+  ip4_addr_t ap_addr = this->get_ap_ip();
+  return ap_addr.addr | htonl(0x000000FF);
+}
+
 void UdpProxy::start() {
   if (this->active_) {
     ESP_LOGW(TAG, "UDP proxy already active");
@@ -81,62 +94,63 @@ void UdpProxy::start() {
   ESP_LOGI(TAG, "  AP IP: %s", ap_ip.str_to(ap_ip_buf));
   ESP_LOGI(TAG, "  STA IP: %s", sta_ip.str_to(sta_ip_buf));
 
-  // Create AP-side socket - this receives broadcasts from Marstek device
-  this->ap_socket_ = socket::socket_ip_loop_monitored(SOCK_DGRAM, IPPROTO_UDP);
-  if (this->ap_socket_ == nullptr) {
-    ESP_LOGE(TAG, "Failed to create AP-side UDP socket");
+  // Create the listen socket - this receives the batteries' broadcasts
+  this->listen_socket_ = socket::socket_ip_loop_monitored(SOCK_DGRAM, IPPROTO_UDP);
+  if (this->listen_socket_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create listen UDP socket");
     return;
   }
 
   int enable = 1;
-  this->ap_socket_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-  this->ap_socket_->setsockopt(SOL_SOCKET, SO_BROADCAST, &enable, sizeof(enable));
+  this->listen_socket_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+  this->listen_socket_->setsockopt(SOL_SOCKET, SO_BROADCAST, &enable, sizeof(enable));
 
   // Bind to all interfaces on the target port
   // We'll filter by source IP to determine which network the packet came from
-  struct sockaddr_storage ap_addr = {};
-  socklen_t ap_addr_len = socket::set_sockaddr_any((struct sockaddr *) &ap_addr, sizeof(ap_addr), this->port_);
+  struct sockaddr_storage listen_addr = {};
+  socklen_t listen_addr_len =
+      socket::set_sockaddr_any((struct sockaddr *) &listen_addr, sizeof(listen_addr), this->port_);
 
-  int err = this->ap_socket_->bind((struct sockaddr *) &ap_addr, ap_addr_len);
+  int err = this->listen_socket_->bind((struct sockaddr *) &listen_addr, listen_addr_len);
   if (err != 0) {
-    ESP_LOGE(TAG, "Failed to bind AP socket to port %d: %d (%s)", this->port_, errno, strerror(errno));
-    this->ap_socket_ = nullptr;
+    ESP_LOGE(TAG, "Failed to bind listen socket to port %d: %d (%s)", this->port_, errno, strerror(errno));
+    this->listen_socket_ = nullptr;
     return;
   }
 
-  ESP_LOGI(TAG, "AP socket bound to port %d", this->port_);
+  ESP_LOGI(TAG, "Listen socket bound to port %d", this->port_);
 
-  // Create STA-side socket - this forwards to home network and receives responses
-  this->sta_socket_ = socket::socket_ip_loop_monitored(SOCK_DGRAM, IPPROTO_UDP);
-  if (this->sta_socket_ == nullptr) {
-    ESP_LOGE(TAG, "Failed to create STA-side UDP socket");
-    this->ap_socket_->close();
-    this->ap_socket_ = nullptr;
+  // Create the forward socket - this forwards to the meter's network and receives responses
+  this->forward_socket_ = socket::socket_ip_loop_monitored(SOCK_DGRAM, IPPROTO_UDP);
+  if (this->forward_socket_ == nullptr) {
+    ESP_LOGE(TAG, "Failed to create forward UDP socket");
+    this->listen_socket_->close();
+    this->listen_socket_ = nullptr;
     return;
   }
 
-  this->sta_socket_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
-  this->sta_socket_->setsockopt(SOL_SOCKET, SO_BROADCAST, &enable, sizeof(enable));
+  this->forward_socket_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+  this->forward_socket_->setsockopt(SOL_SOCKET, SO_BROADCAST, &enable, sizeof(enable));
 
-  // Bind to any available port on STA interface for outgoing traffic
+  // Bind to any available port for outgoing traffic
   // We bind to port 0 to let the system assign a port
-  struct sockaddr_storage sta_addr = {};
-  socklen_t sta_addr_len = socket::set_sockaddr_any((struct sockaddr *) &sta_addr, sizeof(sta_addr), 0);
+  struct sockaddr_storage forward_addr = {};
+  socklen_t forward_addr_len = socket::set_sockaddr_any((struct sockaddr *) &forward_addr, sizeof(forward_addr), 0);
 
-  err = this->sta_socket_->bind((struct sockaddr *) &sta_addr, sta_addr_len);
+  err = this->forward_socket_->bind((struct sockaddr *) &forward_addr, forward_addr_len);
   if (err != 0) {
-    ESP_LOGE(TAG, "Failed to bind STA socket: %d (%s)", errno, strerror(errno));
-    this->ap_socket_->close();
-    this->ap_socket_ = nullptr;
-    this->sta_socket_ = nullptr;
+    ESP_LOGE(TAG, "Failed to bind forward socket: %d (%s)", errno, strerror(errno));
+    this->listen_socket_->close();
+    this->listen_socket_ = nullptr;
+    this->forward_socket_ = nullptr;
     return;
   }
 
   // Get the assigned port for logging
   struct sockaddr_in local_addr;
   socklen_t local_addr_len = sizeof(local_addr);
-  getsockname(this->sta_socket_->get_fd(), (struct sockaddr *) &local_addr, &local_addr_len);
-  ESP_LOGI(TAG, "STA socket bound to port %d", ntohs(local_addr.sin_port));
+  getsockname(this->forward_socket_->get_fd(), (struct sockaddr *) &local_addr, &local_addr_len);
+  ESP_LOGI(TAG, "Forward socket bound to port %d", ntohs(local_addr.sin_port));
 
   this->active_ = true;
   ESP_LOGI(TAG, "UDP proxy started successfully");
@@ -149,14 +163,14 @@ void UdpProxy::stop() {
 
   this->active_ = false;
 
-  if (this->ap_socket_ != nullptr) {
-    this->ap_socket_->close();
-    this->ap_socket_ = nullptr;
+  if (this->listen_socket_ != nullptr) {
+    this->listen_socket_->close();
+    this->listen_socket_ = nullptr;
   }
 
-  if (this->sta_socket_ != nullptr) {
-    this->sta_socket_->close();
-    this->sta_socket_ = nullptr;
+  if (this->forward_socket_ != nullptr) {
+    this->forward_socket_->close();
+    this->forward_socket_ = nullptr;
   }
 
   this->sessions_.clear();
@@ -195,8 +209,8 @@ void UdpProxy::loop() {
   }
 
   // Process incoming packets on both sockets
-  this->process_ap_socket();
-  this->process_sta_socket();
+  this->process_requests();
+  this->process_responses();
 
   // Cleanup expired sessions periodically (every 5 seconds)
   if (now - this->last_cleanup_ > 5000) {
@@ -258,12 +272,12 @@ void UdpProxy::retry_start() {
   }
 }
 
-void UdpProxy::process_ap_socket() {
-  if (this->ap_socket_ == nullptr || !this->ap_socket_->ready()) {
+void UdpProxy::process_requests() {
+  if (this->listen_socket_ == nullptr || !this->listen_socket_->ready()) {
     return;
   }
 
-  int fd = this->ap_socket_->get_fd();
+  int fd = this->listen_socket_->get_fd();
   if (fd < 0) {
     return;
   }
@@ -276,7 +290,7 @@ void UdpProxy::process_ap_socket() {
 
   if (len < 0) {
     if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-      ESP_LOGE(TAG, "AP socket recvfrom failed: %d (%s)", errno, strerror(errno));
+      ESP_LOGE(TAG, "Listen socket recvfrom failed: %d (%s)", errno, strerror(errno));
     }
     return;
   }
@@ -295,11 +309,12 @@ void UdpProxy::process_ap_socket() {
   uint16_t src_port = ntohs(client_addr.sin_port);
 
   char src_ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
-  ESP_LOGD(TAG, "Received %zd bytes on AP socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
+  ESP_LOGD(TAG, "Received %zd bytes on listen socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
 
-  // Check if this is from the AP network (our target)
-  if (!this->is_ap_network(src_ip)) {
-    ESP_LOGV(TAG, "Ignoring packet from non-AP network");
+  // Requests come from the side the meter is not on. The listen socket is
+  // bound to all interfaces, so it also sees broadcasts from the meter's side.
+  if (this->is_ap_network(src_ip) == this->meter_on_ap_) {
+    ESP_LOGV(TAG, "Ignoring packet from the meter's network");
     this->packets_dropped_++;
     return;
   }
@@ -308,47 +323,50 @@ void UdpProxy::process_ap_socket() {
   this->has_request_ = true;
 
   // Store/update session for this client
-  // Key by source port since that's what we need to route responses back to
   UdpSession session;
   session.client_ip = src_ip;
   session.client_port = src_port;
   session.last_activity = millis();
-  this->sessions_[src_port] = session;
+  this->sessions_[(uint64_t(client_addr.sin_addr.s_addr) << 16) | src_port] = session;
 
   ESP_LOGD(TAG, "Session created/updated for %s:%d", src_ip_buf, src_port);
 
-  // Forward to STA network as broadcast
-  if (this->sta_socket_ == nullptr) {
-    ESP_LOGW(TAG, "STA socket not available, cannot forward");
+  // Forward to the meter's network as broadcast
+  if (this->forward_socket_ == nullptr) {
+    ESP_LOGW(TAG, "Forward socket not available, cannot forward");
     this->packets_dropped_++;
     return;
   }
 
-  // Create broadcast address for STA network
   struct sockaddr_in broadcast_addr;
   memset(&broadcast_addr, 0, sizeof(broadcast_addr));
   broadcast_addr.sin_family = AF_INET;
   broadcast_addr.sin_port = htons(this->port_);
-  broadcast_addr.sin_addr.s_addr = INADDR_BROADCAST;  // 255.255.255.255
+  broadcast_addr.sin_addr.s_addr = this->request_destination();
 
-  ssize_t sent = this->sta_socket_->sendto(this->buffer_, len, 0,
-                                            (struct sockaddr *) &broadcast_addr, sizeof(broadcast_addr));
+  const char *meter_network = this->meter_on_ap_ ? "AP" : "STA";
+  ssize_t sent = this->forward_socket_->sendto(this->buffer_, len, 0,
+                                                (struct sockaddr *) &broadcast_addr, sizeof(broadcast_addr));
 
   if (sent < 0) {
-    ESP_LOGE(TAG, "Failed to forward to STA network: %d (%s)", errno, strerror(errno));
+    ESP_LOGE(TAG, "Failed to forward to %s network: %d (%s)", meter_network, errno, strerror(errno));
     this->packets_dropped_++;
   } else {
-    ESP_LOGD(TAG, "Forwarded %zd bytes to STA network broadcast", sent);
-    this->packets_to_sta_++;
+    ESP_LOGD(TAG, "Forwarded %zd bytes to %s network broadcast", sent, meter_network);
+    if (this->meter_on_ap_) {
+      this->packets_to_ap_++;
+    } else {
+      this->packets_to_sta_++;
+    }
   }
 }
 
-void UdpProxy::process_sta_socket() {
-  if (this->sta_socket_ == nullptr || !this->sta_socket_->ready()) {
+void UdpProxy::process_responses() {
+  if (this->forward_socket_ == nullptr || !this->forward_socket_->ready()) {
     return;
   }
 
-  int fd = this->sta_socket_->get_fd();
+  int fd = this->forward_socket_->get_fd();
   if (fd < 0) {
     return;
   }
@@ -361,7 +379,7 @@ void UdpProxy::process_sta_socket() {
 
   if (len < 0) {
     if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-      ESP_LOGE(TAG, "STA socket recvfrom failed: %d (%s)", errno, strerror(errno));
+      ESP_LOGE(TAG, "Forward socket recvfrom failed: %d (%s)", errno, strerror(errno));
     }
     return;
   }
@@ -380,20 +398,28 @@ void UdpProxy::process_sta_socket() {
   uint16_t src_port = ntohs(sender_addr.sin_port);
 
   char src_ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
-  ESP_LOGD(TAG, "Received %zd bytes on STA socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
+  ESP_LOGD(TAG, "Received %zd bytes on forward socket from %s:%d", len, src_ip.str_to(src_ip_buf), src_port);
+
+  // A meter on the AP answers from the AP. Anything else reaching the
+  // forward socket is not an answer to forward to the home network.
+  if (this->meter_on_ap_ && !this->is_ap_network(src_ip)) {
+    ESP_LOGV(TAG, "Ignoring packet from outside the meter's network");
+    this->packets_dropped_++;
+    return;
+  }
 
   this->last_response_ = millis();
   this->has_response_ = true;
 
-  // Forward response to all active AP clients
+  // Forward response to all active clients
   if (this->sessions_.empty()) {
     ESP_LOGV(TAG, "No active sessions, dropping response");
     this->packets_dropped_++;
     return;
   }
 
-  if (this->ap_socket_ == nullptr) {
-    ESP_LOGW(TAG, "AP socket not available, cannot forward response");
+  if (this->listen_socket_ == nullptr) {
+    ESP_LOGW(TAG, "Listen socket not available, cannot forward response");
     this->packets_dropped_++;
     return;
   }
@@ -411,24 +437,28 @@ void UdpProxy::process_sta_socket() {
     client_addr.sin_addr.s_addr = addr.addr;
 
     char client_ip_buf[network::IP_ADDRESS_BUFFER_SIZE];
-    ESP_LOGD(TAG, "Forwarding response to AP client %s:%d",
+    ESP_LOGD(TAG, "Forwarding response to client %s:%d",
              session.client_ip.str_to(client_ip_buf), session.client_port);
 
-    ssize_t sent = this->ap_socket_->sendto(this->buffer_, len, 0,
-                                             (struct sockaddr *) &client_addr, sizeof(client_addr));
+    ssize_t sent = this->listen_socket_->sendto(this->buffer_, len, 0,
+                                                 (struct sockaddr *) &client_addr, sizeof(client_addr));
 
     if (sent < 0) {
-      ESP_LOGE(TAG, "Failed to forward to AP client: %d (%s)", errno, strerror(errno));
+      ESP_LOGE(TAG, "Failed to forward to client: %d (%s)", errno, strerror(errno));
       this->packets_dropped_++;
     } else {
       forwarded_count++;
-      this->packets_to_ap_++;
+      if (this->meter_on_ap_) {
+        this->packets_to_sta_++;
+      } else {
+        this->packets_to_ap_++;
+      }
       // Update session activity
       session.last_activity = millis();
     }
   }
 
-  ESP_LOGD(TAG, "Forwarded response to %d AP client(s)", forwarded_count);
+  ESP_LOGD(TAG, "Forwarded response to %d client(s)", forwarded_count);
 }
 
 void UdpProxy::cleanup_expired_sessions() {

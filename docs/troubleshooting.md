@@ -98,6 +98,8 @@ The Marsrelay access point is a separate network, so devices on your home LAN ar
 
 Workaround: bring the meter reading into ESPHome as a sensor (e.g. imported from Home Assistant) and serve it to the battery with the [Shelly UDP emulator](../README.md#optional-shelly-udp-emulator) directly on the ESP32.
 
+A Marstek CT that is itself on a Marsrelay access point needs `meter_network: access_point` on that Marsrelay's `udp_proxy`; see [A Marstek CT on its own Marsrelay](../README.md#optional-a-marstek-ct-on-its-own-marsrelay).
+
 ## hm2mqtt shows all entities as unavailable
 
 hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the configured `deviceId` against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices it must be the Bluetooth MAC plus an `id_mappings` entry mapping the battery's topic ID to that MAC; for all other devices it must match the topic ID exactly (or be connected via `id_mappings`). See [Device IDs](../README.md#device-ids-mac-address-vs-encrypted-id).
