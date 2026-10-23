@@ -68,7 +68,7 @@ class MeterLivenessTrigger : public Trigger<> {
 /// Represents an active UDP session that tracks a client's source port
 /// so responses can be routed back correctly.
 struct UdpSession {
-  /// The original client's IP address (on AP network)
+  /// The original client's IP address (on the battery's network)
   network::IPAddress client_ip;
   /// The original client's source port
   uint16_t client_port;
@@ -85,6 +85,11 @@ class UdpProxy : public Component {
 
   void set_port(uint16_t port) { this->port_ = port; }
   void set_session_timeout(uint32_t timeout_ms) { this->session_timeout_ms_ = timeout_ms; }
+  /// Where the power meter is. By default the battery is on the access point
+  /// and the meter on the home network; with this set it is the other way
+  /// round: the meter (e.g. a CT002) is on the access point and the batteries
+  /// asking it are on the home network, possibly behind another Marsrelay.
+  void set_meter_on_ap(bool meter_on_ap) { this->meter_on_ap_ = meter_on_ap; }
 
   void start();
   void stop();
@@ -93,14 +98,14 @@ class UdpProxy : public Component {
   /// it running.
   bool is_active() const { return this->active_; }
 
-  /// Packets forwarded from the battery's network to the home network, i.e.
-  /// the meter discovery requests the battery sends.
+  /// Packets forwarded to the home network: the battery's requests, or the
+  /// meter's answers when the meter is on the access point.
   uint32_t packets_to_sta() const { return this->packets_to_sta_; }
-  /// Packets forwarded back from the home network to the battery, i.e. the
-  /// meter's answers.
+  /// Packets forwarded to the access point: the meter's answers, or the
+  /// battery's requests when the meter is on the access point.
   uint32_t packets_to_ap() const { return this->packets_to_ap_; }
-  /// Packets received but not forwarded: from outside the AP subnet, with no
-  /// session to answer, or whose forward failed.
+  /// Packets received but not forwarded: from the wrong side of the proxy,
+  /// with no session to answer, or whose forward failed.
   uint32_t packets_dropped() const { return this->packets_dropped_; }
   /// Clients with a session that has not timed out yet.
   size_t session_count() const { return this->sessions_.size(); }
@@ -134,11 +139,11 @@ class UdpProxy : public Component {
 #endif
 
  protected:
-  /// Process incoming packets on the AP-side socket
-  void process_ap_socket();
+  /// Forward the batteries' requests arriving on the listen socket
+  void process_requests();
 
-  /// Process incoming packets on the STA-side socket
-  void process_sta_socket();
+  /// Forward the meter's answers arriving on the forward socket
+  void process_responses();
 
   /// Clean up expired sessions
   void cleanup_expired_sessions();
@@ -158,6 +163,10 @@ class UdpProxy : public Component {
   /// Get the STA network's IP address
   network::IPAddress get_sta_ip();
 
+  /// Where requests are forwarded to: the home network's broadcast address,
+  /// or the access point's when the meter is there.
+  uint32_t request_destination();
+
   /// Buffer size for UDP packets
   static constexpr size_t UDP_BUFFER_SIZE = 1500;
 
@@ -171,19 +180,23 @@ class UdpProxy : public Component {
   /// Session timeout in milliseconds
   uint32_t session_timeout_ms_{30000};
 
+  /// Whether the meter is on the access point rather than the home network
+  bool meter_on_ap_{false};
+
   /// Whether the proxy is active
   bool active_{false};
 
-  /// Socket listening on the AP network (receives from Marstek device)
-  std::unique_ptr<socket::ListenSocket> ap_socket_{nullptr};
+  /// Socket bound to the meter port on all interfaces: receives the
+  /// batteries' requests and sends the meter's answers back to them
+  std::unique_ptr<socket::ListenSocket> listen_socket_{nullptr};
 
-  /// Socket for STA network communication (forwards to home network, receives responses)
-  std::unique_ptr<socket::ListenSocket> sta_socket_{nullptr};
+  /// Socket on an ephemeral port: forwards the requests to the meter's side
+  /// and receives the meter's answers
+  std::unique_ptr<socket::ListenSocket> forward_socket_{nullptr};
 
-  /// Map of STA-side source port to session info for routing responses back
-  /// Key is a session identifier (we use a simple incrementing counter)
-  /// In practice, since we might have multiple AP clients, we track by remote port
-  std::map<uint16_t, UdpSession> sessions_;
+  /// Requesters to route the meter's answers back to, keyed by IP and port:
+  /// batteries on the home network can share a source port.
+  std::map<uint64_t, UdpSession> sessions_;
 
   /// Receive buffer
   uint8_t buffer_[UDP_BUFFER_SIZE];

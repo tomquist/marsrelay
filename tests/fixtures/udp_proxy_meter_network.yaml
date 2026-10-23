@@ -1,0 +1,32 @@
+# One proxy per direction: a meter on the home network answering a battery on
+# the access point (the default), and a meter on the access point answering
+# batteries on the home network.
+esphome:
+  name: test-udp-proxy
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+wifi:
+  ssid: "test"
+  password: "testpass"
+  ap:
+    ssid: "fallback"
+    password: "fallbackpass"
+
+logger:
+
+udp_proxy:
+  - id: meter_on_home
+    port: 1010
+  - id: meter_on_ap
+    port: 12345
+    meter_network: access_point
