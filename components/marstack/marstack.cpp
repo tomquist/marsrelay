@@ -53,9 +53,43 @@ void log_query_params(AsyncWebServerRequest *request, const char *path) {
   if (!query.empty()) {
     ESP_LOGD(TAG, "%s query params: %s", path, query.c_str());
   }
+#elif defined(USE_ESP_IDF)
+  // url_to() drops the query string, but the raw request still has it. The
+  // query is how the battery names itself (devid=...), so it is what tells
+  // one device's requests from another's.
+  httpd_req_t *idf_req = static_cast<httpd_req_t *>(*request);
+  const char *query = idf_req != nullptr ? strchr(idf_req->uri, '?') : nullptr;
+  if (query != nullptr && query[1] != '\0') {
+    ESP_LOGD(TAG, "%s query params: %s", path, query + 1);
+  }
 #else
   (void) request;
   (void) path;
+#endif
+}
+
+// True for a request addressed to one of the cloud's HTTP hosts, which
+// capture_dns points at this device. Nothing else, the web UI included, is
+// reached under such a name.
+bool is_cloud_host(AsyncWebServerRequest *request) {
+#if defined(USE_ESP_IDF)
+  const auto host = request->get_header("Host");
+  if (!host.has_value()) {
+    return false;
+  }
+  static const std::string suffix = ".hamedata.com";
+  std::string name = host.value();
+  const size_t port = name.find(':');
+  if (port != std::string::npos) {
+    name.resize(port);
+  }
+  for (auto &c : name) {
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  }
+  return name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0;
+#else
+  (void) request;
+  return false;
 #endif
 }
 
@@ -496,6 +530,25 @@ void Marstack::dispatch(const Request &req, Response &res) {
     return;
   }
 
+  if (req.method == "GET" && req.url == "/ems/api/v1/getDeviceFire") {
+    // B2500 firmware asks for these settings when it has none stored, and
+    // keeps what it gets. "p" and "pmin" are its maximum and minimum output
+    // power in W; the rest is the real cloud's answer, the same for every
+    // device id, unknown ones included. Without "pmin" the battery derives its
+    // own minimum. Without any answer it keeps its built-in defaults, which
+    // match the cloud's, and asks again later.
+    res.code = 200;
+    res.content_type = "application/json; charset=utf-8";
+    res.body = "{\"code\":1,\"show\":0,\"msg\":\"ok\",\"data\":{\"id\":255,\"s\":360,\"c\":30,\"i\":0,\"p\":";
+    res.body.append(std::to_string(this->max_power_));
+    if (this->min_power_ >= 0) {
+      res.body.append(",\"pmin\":");
+      res.body.append(std::to_string(this->min_power_));
+    }
+    res.body.append("}}");
+    return;
+  }
+
   res.code = 404;
   res.content_type = "text/plain";
   res.body = "";
@@ -556,10 +609,16 @@ std::string Marstack::build_raw_response(const Response &res) const {
 }
 
 bool Marstack::canHandle(AsyncWebServerRequest *request) const {
+  // Claim every cloud request, including the ones without an answer: those
+  // then show up in the log and in `on_request` before getting their 404,
+  // rather than vanishing into the web server's.
+  if ((request->method() == HTTP_GET || request->method() == HTTP_POST) && is_cloud_host(request)) {
+    return true;
+  }
   const std::string url = request_url(request);
   if (request->method() == HTTP_GET) {
     return url == "/prod/api/v1/setB2500Report" || is_time_path(url) || url == "/app/Solar/puterrinfo.php" ||
-           url == "/ems/api/v1/getRealtimeSoc";
+           url == "/ems/api/v1/getRealtimeSoc" || url == "/ems/api/v1/getDeviceFire";
   }
   if (request->method() == HTTP_POST) {
     return url == "/app/Solar/puterrinfo.php" || is_data_upload_path(url);
@@ -646,8 +705,9 @@ void Marstack::handleRequest(AsyncWebServerRequest *request) {
   this->dispatch(req, res);
 
   if (res.code == 404) {
-    // Leave unmatched paths to the rest of the ESPHome web server rather than
-    // claiming them; canHandle() only routes the cloud endpoints here anyway.
+    // A cloud path nobody has worked out an answer for. Saying so is the
+    // point of claiming it: the battery's next move may depend on it.
+    ESP_LOGD(TAG, "No answer for %s %s; replying 404", req.method.c_str(), req.url.c_str());
     request->send(404, "text/plain", "Not found");
     return;
   }
@@ -686,6 +746,10 @@ void Marstack::dump_config() {
   ESP_LOGCONFIG(TAG, "Marstack cloud emulation:");
   ESP_LOGCONFIG(TAG, "  Raw cloud response framing: %s", YESNO(this->raw_responses_));
   ESP_LOGCONFIG(TAG, "  Clock reply suffix: %s", this->time_suffix_.c_str());
+  ESP_LOGCONFIG(TAG, "  B2500 max output power: %u W", this->max_power_);
+  if (this->min_power_ >= 0) {
+    ESP_LOGCONFIG(TAG, "  B2500 min output power: %d W", this->min_power_);
+  }
 }
 
 }  // namespace marstack

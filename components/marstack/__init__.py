@@ -30,6 +30,12 @@ CONF_ACCEPT_ALL = "accept_all"
 CONF_HOLD_TIME = "hold_time"
 CONF_MAX_BODY = "max_body"
 CONF_MAX_CONNECTIONS = "max_connections"
+CONF_POWER_LIMITS = "power_limits"
+CONF_MAX_POWER = "max_power"
+CONF_MIN_POWER = "min_power"
+
+# B2500 firmware caps its maximum output power here whatever it is told.
+_B2500_MAX_OUTPUT_W = 800
 
 AUTO_LOAD = ["web_server_base", "json"]
 CODEOWNERS = ["@marsrelay"]
@@ -96,6 +102,32 @@ HTTPS_SCHEMA = cv.Schema(
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
+def _validate_power_limits(config):
+    if config.get(CONF_MIN_POWER, 0) > config[CONF_MAX_POWER]:
+        raise cv.Invalid(
+            f"min_power ({config[CONF_MIN_POWER]} W) must not exceed max_power "
+            f"({config[CONF_MAX_POWER]} W)",
+            path=[CONF_MIN_POWER],
+        )
+    return config
+
+
+# What a B2500 is told when it asks for its output power limits. Leaving out
+# min_power lets the battery pick its own (80 W, or 40 W on some variants).
+# A battery that already has settings stored does not ask; see the README.
+POWER_LIMITS_SCHEMA = cv.All(
+    cv.Schema(
+        {
+            # 0 is what the firmware treats as "no settings stored".
+            cv.Optional(CONF_MAX_POWER, default=_B2500_MAX_OUTPUT_W): cv.int_range(
+                min=1, max=_B2500_MAX_OUTPUT_W
+            ),
+            cv.Optional(CONF_MIN_POWER): cv.int_range(min=0, max=_B2500_MAX_OUTPUT_W),
+        }
+    ),
+    _validate_power_limits,
+)
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(Marstack),
@@ -106,6 +138,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_TIME_SUFFIX, default="04_0_0_0"): cv.string_strict,
         cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
         cv.Optional(CONF_HTTPS): HTTPS_SCHEMA,
+        cv.Optional(CONF_POWER_LIMITS): POWER_LIMITS_SCHEMA,
         cv.Optional(CONF_ON_REQUEST): automation.validate_automation(
             {
                 cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MarstackRequestTrigger),
@@ -183,6 +216,12 @@ async def to_code(config):
 
     cg.add(var.set_raw_responses(config[CONF_RAW_RESPONSES]))
     cg.add(var.set_time_suffix(config[CONF_TIME_SUFFIX]))
+    if (limits := config.get(CONF_POWER_LIMITS)) is not None:
+        cg.add(
+            var.set_power_limits(
+                limits[CONF_MAX_POWER], limits.get(CONF_MIN_POWER, -1)
+            )
+        )
     cg.add(
         var.set_diagnostics_interval(
             config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds
