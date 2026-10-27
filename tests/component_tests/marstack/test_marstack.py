@@ -90,3 +90,40 @@ def test_https_keeps_the_mbedtls_server_role(generate_main):
         "CONFIG_MBEDTLS_KEY_EXCHANGE_RSA",
     ):
         assert option not in options
+
+
+def _with_power_limits(tmp_path: Path, limits: str) -> Path:
+    return _derive(
+        tmp_path,
+        ('  time_suffix: "04_0_0_0"\n', f'  time_suffix: "04_0_0_0"\n  power_limits:\n{limits}'),
+    )
+
+
+def test_power_limits_are_left_to_the_component_by_default(generate_main):
+    main_cpp = generate_main(str(FIXTURE))
+    assert "set_power_limits(" not in main_cpp
+
+
+def test_power_limits_reach_the_component(generate_main, tmp_path):
+    path = _with_power_limits(tmp_path, "    max_power: 600\n    min_power: 50\n")
+    main_cpp = generate_main(str(path))
+    assert "marstack_http->set_power_limits(600, 50)" in main_cpp
+
+
+def test_min_power_is_optional(generate_main, tmp_path):
+    # Left out, the battery derives its own minimum.
+    path = _with_power_limits(tmp_path, "    max_power: 600\n")
+    main_cpp = generate_main(str(path))
+    assert "marstack_http->set_power_limits(600, -1)" in main_cpp
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        "    max_power: 900\n",  # above the firmware's own cap
+        "    max_power: 0\n",  # what the firmware reads as "nothing stored"
+        "    max_power: 300\n    min_power: 400\n",
+    ],
+)
+def test_invalid_power_limits_are_rejected(limits, tmp_path):
+    assert _read(_with_power_limits(tmp_path, limits)) is None

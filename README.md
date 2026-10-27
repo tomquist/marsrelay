@@ -195,6 +195,39 @@ All optional. The defaults are what the behaviour described above assumes; `hold
 | `raw_responses` | `true` | reproduce the cloud's exact response framing on both ports |
 | `time_suffix` | `"04_0_0_0"` | the four trailing fields of the clock reply, mirrored from the real endpoint rather than invented |
 
+## B2500: output power limits
+
+A B2500 keeps a small set of settings it normally gets from the Marstek cloud, the most important being its maximum and minimum output power. It asks for them (`getDeviceFire`) when it has none stored, and keeps what it gets. Marsrelay answers with what the real cloud sends every device:
+
+| Field | Cloud value | Meaning |
+|---|---|---|
+| `p` | 800 | Maximum output power in W. Every scheduled output power is clamped to it, and the firmware caps it at 800. |
+| `pmin` | not sent | Minimum output power in W. Left out, the battery picks its own: 80 W, or 40 W on some variants. |
+| `id` | 255 | A profile number. The battery derives its own `pmin` from it. |
+| `s` | 360 | A duration in seconds, used by protective checks that must hold for that long before the battery acts. |
+| `c` | 30 | A period in seconds, used by one recurring check. |
+| `i` | 0 | Stored and reported, otherwise unknown. |
+
+These meanings were worked out from the HMJ-2 V116 firmware, not measured on a battery. The cloud's values are the same as the firmware's own defaults, so answering this changes nothing about how the battery behaves; it only stops it asking again.
+
+### Changing the limits
+
+For a battery that asks, set the answer on `marstack:`. Both values are optional; leaving out `min_power` lets the battery pick its own:
+
+```yaml
+marstack:
+  power_limits:
+    max_power: 600   # W, at most 800
+    min_power: 80    # W
+```
+
+A battery that already has settings stored does not ask, so for one that is up and running, send it the settings as a command instead. Publish to the same topic hm2mqtt sends its commands to (`.../App/<deviceId>/ctrl`); Marsrelay relays it to the battery:
+
+- `cd=24` reads the current values back.
+- `cd=23,id=255,s=360,c=30,i=0,p=600` sets them.
+
+The battery answers `cd=24` on its `.../device/...` topic with `id=...,s=...,c=...,i=...,p=...,pmin=...,adjust_time=...`. For `cd=23`, send back the `id`, `s`, `c` and `i` it reported and change only `p`, plus `pmin=<W>` at the end if you want to set the minimum too. All five fields must be there, in this order, or the battery does not store the command. The battery stores the values and applies them straight away. Like the table above, this comes from reading the firmware, not from testing on a battery.
+
 ## Optional: A Marstek CT on its own Marsrelay
 
 A Marstek CT (CT002, CT003) can join a Marsrelay access point to stay off the cloud too, even when it is too far from the battery to share one. Each device then gets its own Marsrelay, both connected to the same home WiFi:

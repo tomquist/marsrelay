@@ -531,13 +531,21 @@ void Marstack::dispatch(const Request &req, Response &res) {
   }
 
   if (req.method == "GET" && req.url == "/ems/api/v1/getDeviceFire") {
-    // B2500 firmware asks for these power-limit settings when it has none
-    // stored, and keeps what it gets. This is the real cloud's answer, which
-    // is the same for every device id, unknown ones included. Without an
-    // answer the battery keeps its built-in defaults and asks again later.
+    // B2500 firmware asks for these settings when it has none stored, and
+    // keeps what it gets. "p" and "pmin" are its maximum and minimum output
+    // power in W; the rest is the real cloud's answer, the same for every
+    // device id, unknown ones included. Without "pmin" the battery derives its
+    // own minimum. Without any answer it keeps its built-in defaults, which
+    // match the cloud's, and asks again later.
     res.code = 200;
     res.content_type = "application/json; charset=utf-8";
-    res.body = "{\"code\":1,\"show\":0,\"msg\":\"ok\",\"data\":{\"id\":255,\"s\":360,\"c\":30,\"i\":0,\"p\":800}}";
+    res.body = "{\"code\":1,\"show\":0,\"msg\":\"ok\",\"data\":{\"id\":255,\"s\":360,\"c\":30,\"i\":0,\"p\":";
+    res.body.append(std::to_string(this->max_power_));
+    if (this->min_power_ >= 0) {
+      res.body.append(",\"pmin\":");
+      res.body.append(std::to_string(this->min_power_));
+    }
+    res.body.append("}}");
     return;
   }
 
@@ -738,6 +746,10 @@ void Marstack::dump_config() {
   ESP_LOGCONFIG(TAG, "Marstack cloud emulation:");
   ESP_LOGCONFIG(TAG, "  Raw cloud response framing: %s", YESNO(this->raw_responses_));
   ESP_LOGCONFIG(TAG, "  Clock reply suffix: %s", this->time_suffix_.c_str());
+  ESP_LOGCONFIG(TAG, "  B2500 max output power: %u W", this->max_power_);
+  if (this->min_power_ >= 0) {
+    ESP_LOGCONFIG(TAG, "  B2500 min output power: %d W", this->min_power_);
+  }
 }
 
 }  // namespace marstack

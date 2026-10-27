@@ -126,6 +126,12 @@ class Marstack : public Component, public AsyncWebHandler {
   void set_raw_responses(bool raw) { this->raw_responses_ = raw; }
   void set_accept_all(bool accept_all) { this->accept_all_ = accept_all; }
   void set_time_suffix(const std::string &suffix) { this->time_suffix_ = suffix; }
+  /// Output power limits handed to a B2500 that asks for its settings, in W.
+  /// A negative minimum leaves it out, and the battery derives its own.
+  void set_power_limits(uint16_t max_power, int min_power) {
+    this->max_power_ = max_power;
+    this->min_power_ = min_power;
+  }
 
   /// Fire the request triggers and fill in what the cloud would answer.
   void dispatch(const Request &req, Response &res);
@@ -181,6 +187,8 @@ class Marstack : public Component, public AsyncWebHandler {
   std::string post_body_buffer_;
   AsyncWebServerRequest *current_post_request_{nullptr};
   std::string time_suffix_{"04_0_0_0"};
+  uint16_t max_power_{800};
+  int min_power_{-1};
   bool raw_responses_{true};
   bool accept_all_{false};
   // The TLS listener hands its parsed requests to the loop task through a
