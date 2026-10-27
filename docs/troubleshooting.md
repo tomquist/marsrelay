@@ -62,7 +62,7 @@ If you only need the device ID while you keep debugging, check the Marsrelay log
 Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. A few related things that are easy to misread:
 
 - Messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) are **diagnostic logs** of the battery's HTTP requests — not battery data.
-- `No answer for GET /...; replying 404` means the battery called a cloud endpoint Marsrelay does not emulate yet. Please open an issue with that line and the `query params` line logged with it.
+- `No answer for GET /...; replying 404` means the battery called a cloud endpoint Marsrelay does not emulate yet. Please open an issue with that line and the `query params` line logged with it, replacing the values (such as `devid`, which can be your battery's MAC address) with placeholders.
 - The battery publishes under `.../device/...` on its own only now and then. Steady data needs [hm2mqtt](https://github.com/tomquist/hm2mqtt), which polls it (`cd=1`). Until the battery's first message, seeing nothing but `request` messages is expected.
 
 ## A Venus keeps dropping off the network
