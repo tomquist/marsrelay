@@ -434,7 +434,7 @@ disable_ap_pmf:
 
 That changes nothing else: the access point keeps its WPA2 password, and the ESP32's own connection to your WiFi is untouched. If the battery then stops dropping off, that was the cause; please report back in [issue #66](https://github.com/tomquist/marsrelay/issues/66) either way.
 
-`recover_stuck_devices` is a safety net for when a battery does get stuck. It keeps it off WiFi for you, and only the battery that is stuck:
+`recover_stuck_devices` is a safety net for when a battery does get stuck. It keeps the battery off WiFi for you:
 
 ```yaml
 mosquitto_broker:
@@ -444,7 +444,7 @@ mosquitto_broker:
     duration: 60s    # how long to keep the battery off the access point
 ```
 
-Once commands for a battery have gone unanswered for `timeout`, Marsrelay looks for the WiFi client that dropped off the access point between the battery's last answer and the first command it missed: that drop is what silenced it. It keeps that client off the access point for `duration`, after which the battery reconnects from scratch. Clients that did not drop off in that window are left alone, and if none did, nothing happens. If the battery is still silent `timeout` after it was let back on, the same client is kept off again for twice as long, up to 10 minutes, until the battery answers. It acts only for batteries that are being polled (by hm2mqtt, for example) and that have published through this Marsrelay since it last started; a battery that was already stuck when Marsrelay restarted needs one reset. Both settings are optional; an empty `recover_stuck_devices: {}` uses the defaults shown.
+Once commands for a battery have gone unanswered for `timeout`, Marsrelay looks for the WiFi clients that dropped off the access point between the battery's last answer and the first command it missed: that drop is what silenced it. It can't tell which client is the battery, so if another device dropped off in that same window it is kept off too. It keeps those clients off the access point for `duration`, after which the battery reconnects from scratch. Clients that did not drop off in that window are left alone, and if none did, nothing happens. If the battery is still silent `timeout` after it was let back on, the same clients are kept off again for twice as long, up to 10 minutes, until the battery answers. It acts only for batteries that are being polled (by hm2mqtt, for example) and that have published through this Marsrelay since it last started; a battery that was already stuck when Marsrelay restarted needs one reset. Both settings are optional; an empty `recover_stuck_devices: {}` uses the defaults shown.
 
 The log shows every client joining and leaving the access point, with the reason it left, and a warning whenever a client is kept off.
 
