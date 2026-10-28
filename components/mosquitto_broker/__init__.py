@@ -158,7 +158,7 @@ RECOVER_STUCK_DEVICES_SCHEMA = cv.Schema(
         # How long the battery is refused. It has to keep failing to connect
         # long enough that its WiFi module reports the failure. A too-short
         # value corrects itself: each further attempt doubles it.
-        cv.Optional(CONF_DURATION, default="60s"): cv.All(
+        cv.Optional(CONF_DURATION, default="45s"): cv.All(
             cv.positive_time_period_milliseconds,
             cv.Range(min=cv.TimePeriod(seconds=30), max=cv.TimePeriod(minutes=10)),
         ),

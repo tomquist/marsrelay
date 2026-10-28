@@ -39,9 +39,9 @@ KEEP = "-Wl,--undefined=__wrap_hostap_new_assoc_sta"
 
 
 def test_recovery_defaults(generate_main, tmp_path):
-    # An empty block turns it on with the defaults: 5 min unanswered, 60 s off.
+    # An empty block turns it on with the defaults: 5 min unanswered, 45 s off.
     main_cpp = generate_main(str(_with_recovery(tmp_path, "    {}\n")))
-    assert "local_broker->set_stuck_recovery(300000, 60000)" in main_cpp
+    assert "local_broker->set_stuck_recovery(300000, 45000)" in main_cpp
 
 
 def test_recovery_adds_the_association_wrap(generate_main, tmp_path):
