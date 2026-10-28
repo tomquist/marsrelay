@@ -28,6 +28,7 @@ extern "C" {
 }
 
 #include "esp_event.h"
+#include "esp_wifi_types.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -151,12 +152,12 @@ class MosquittoBroker : public Component {
 
   /// Recover a battery that dropped off the access point, came back, and
   /// stopped answering. After `timeout_ms` of relayed commands going
-  /// unanswered, the clients that rejoined the access point since its last
-  /// message are kept off it for `duration_ms`. See check_stuck_devices_().
+  /// unanswered, the access point is taken away for `duration_ms`. See
+  /// check_stuck_devices_().
   void set_stuck_recovery(uint32_t timeout_ms, uint32_t duration_ms) {
     this->stuck_recovery_ = true;
     this->stuck_timeout_ms_ = timeout_ms;
-    this->kick_duration_ms_ = duration_ms;
+    this->pause_duration_ms_ = duration_ms;
   }
 
 #ifdef USE_BINARY_SENSOR
@@ -194,6 +195,8 @@ class MosquittoBroker : public Component {
   void note_device_message_(const std::string &topic);
   void note_command_(const std::string &topic);
   void check_stuck_devices_();
+  bool pause_ap_();
+  void resume_ap_();
 
   /// What the broker knows about one battery, keyed by its device-side id.
   struct DeviceState {
@@ -201,32 +204,24 @@ class MosquittoBroker : public Component {
     /// A command was relayed after the last message and is still unanswered.
     bool unanswered{false};
     uint32_t unanswered_since{0};
-    /// When recovery last acted on it, so it does not act again every loop.
-    bool recovery_attempted{false};
-    uint32_t last_recovery{0};
-    /// The clients whose drop silenced it, found on the first attempt and
-    /// kept for the retries: a later drop, the client's own or one caused by
-    /// recovery, must not replace it.
+    /// Recovery has looked at this silence and looks again at `next_check`.
+    bool checked{false};
+    uint32_t next_check{0};
+    /// The clients whose drop silenced it, found on the first look and kept
+    /// for the later ones: their own later drops, and the ones a pause
+    /// causes, must not hide it.
     std::vector<uint64_t> suspects;
-    /// Kicks so far; each retry doubles the time a suspect is kept off.
-    uint8_t kicks{0};
-    /// How long the last kick kept the suspects off. The next attempt waits
-    /// for that outage to end, plus a full timeout for the device to answer.
-    uint32_t last_kick_duration{0};
+    /// Access point pauses for this silence so far.
+    uint8_t pauses{0};
+    /// Out of pauses; nothing more happens until it publishes again.
+    bool gave_up{false};
   };
-  /// A client of the access point, keyed by MAC address.
-  struct Station {
-    uint16_t aid{0};
-    bool connected{false};
-    uint32_t last_join{0};
-    bool has_left{false};
-    uint32_t last_leave{0};
-    /// Turned away on every rejoin until `blocked_until`.
-    bool blocked{false};
-    uint32_t blocked_until{0};
-    /// Whether it has left since it was blocked; only the first departure is
-    /// logged at DEBUG.
-    bool left_while_blocked{false};
+  /// A client leaving the access point. Kept as a history rather than one
+  /// time per client: a stuck battery keeps leaving and rejoining, and its
+  /// later departures must not hide the one that silenced it.
+  struct Departure {
+    uint64_t mac;
+    uint32_t at;
   };
 
   uint16_t port_{1883};
@@ -270,11 +265,17 @@ class MosquittoBroker : public Component {
   Mutex devices_lock_;
   std::map<std::string, DeviceState> devices_;
   Mutex stations_lock_;
-  std::map<uint64_t, Station> stations_;
+  /// Clients on the access point right now, and the latest departures.
+  std::vector<uint64_t> connected_;
+  std::vector<Departure> departures_;
   bool stuck_recovery_{false};
   uint32_t stuck_timeout_ms_{300000};
-  uint32_t kick_duration_ms_{60000};
+  uint32_t pause_duration_ms_{120000};
   uint32_t last_stuck_check_{0};
+  /// The access point's real settings while it is paused.
+  bool ap_paused_{false};
+  uint32_t ap_paused_at_{0};
+  wifi_config_t saved_ap_config_{};
 
   // The battery's own poll, queued by the broker task for loop() to send back
   // once the battery is ready to read it. See handle_message_().

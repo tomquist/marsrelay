@@ -97,7 +97,7 @@ Long-running dropouts where MQTT and UDP stop together while WiFi stays up are s
 
 Symptoms: after a battery reset everything works, then data stops for good about half an hour later. `Commands relayed` keeps counting while `Battery messages` stands still, hm2mqtt reports no response, and restarting Marsrelay does not help. Only resetting the battery does, until the next time.
 
-The battery leaves the access point by itself every half hour or so and rejoins a few seconds later; the log shows `AP client <mac> left (reason ...)` followed by `joined`. Usually its MQTT connection survives that. When it does not, the battery only sets the connection up again after a longer outage. Turn on [`recover_stuck_devices`](../README.md#recovering-a-battery-stuck-after-a-wifi-drop) to have Marsrelay give it that outage automatically. Discussed in [issue #66](https://github.com/tomquist/marsrelay/issues/66).
+The battery leaves the access point by itself every half hour or so and rejoins a few seconds later; the log shows `AP client <mac> left (reason ...)` followed by `joined`. Usually its MQTT connection survives that. When it does not, the battery only sets the connection up again once it can't find its WiFi network at all. Turn on [`recover_stuck_devices`](../README.md#recovering-a-battery-stuck-after-a-wifi-drop) to have Marsrelay take the access point away for a couple of minutes when that happens. Discussed in [issue #66](https://github.com/tomquist/marsrelay/issues/66).
 
 ## The battery can't reach a power meter on my home network (e.g. EcoTracker)
 

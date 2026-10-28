@@ -155,9 +155,11 @@ RECOVER_STUCK_DEVICES_SCHEMA = cv.Schema(
             cv.positive_time_period_milliseconds,
             cv.Range(min=cv.TimePeriod(minutes=1)),
         ),
-        cv.Optional(CONF_DURATION, default="60s"): cv.All(
+        # How long the access point stays away. The battery has to look for
+        # it and miss it in that time.
+        cv.Optional(CONF_DURATION, default="2min"): cv.All(
             cv.positive_time_period_milliseconds,
-            cv.Range(min=cv.TimePeriod(seconds=10), max=cv.TimePeriod(minutes=10)),
+            cv.Range(min=cv.TimePeriod(seconds=30), max=cv.TimePeriod(minutes=10)),
         ),
     }
 )
