@@ -422,6 +422,24 @@ quiet while MQTT keeps working, and the other way round — that is the same
 split the [diagnostics](#diagnostics) notes describe — so a restart is worth
 gating on both, as above.
 
+### Recovering a battery stuck after a WiFi drop
+
+A B2500 (seen on HMJ-2 firmware V116) leaves the access point by itself every half hour or so and rejoins a few seconds later. Usually its MQTT connection survives. When it does not, the battery stops answering for good: it only sets its cloud connection up again after a longer outage, and a few seconds is too short. Restarting Marsrelay is too short as well; resetting the battery, or keeping it off WiFi for a few minutes, brings it back.
+
+`recover_stuck_devices` does the second for you, and only for the battery that is stuck:
+
+```yaml
+mosquitto_broker:
+  # ...existing options...
+  recover_stuck_devices:
+    timeout: 5min    # how long relayed commands may go unanswered
+    duration: 60s    # how long to keep the battery off the access point
+```
+
+Once commands for a battery have gone unanswered for `timeout`, Marsrelay keeps the WiFi clients that rejoined the access point since that battery's last message off it for `duration`, after which the battery reconnects from scratch. Clients that did not rejoin are left alone. It acts at most once per `timeout`, and only for batteries that are being polled (by hm2mqtt, for example) and that have published through this Marsrelay since it last started; a battery that was already stuck when Marsrelay restarted needs one reset. Both settings are optional; an empty `recover_stuck_devices: {}` uses the defaults shown.
+
+The log shows every client joining and leaving the access point, with the reason it left, and a warning whenever a client is kept off.
+
 ## Troubleshooting
 
 The [diagnostic entities](#diagnostics) show which part stopped. See
@@ -433,6 +451,7 @@ The [diagnostic entities](#diagnostics) show which part stopped. See
 - [Repeating getDateInfoeu.php requests and UDP proxy log lines](docs/troubleshooting.md#repeating-getdateinfoeuphp-requests-and-udp-proxy-log-lines) (spoiler: that's normal)
 - [A Venus keeps dropping off the network](docs/troubleshooting.md#a-venus-keeps-dropping-off-the-network)
 - [Communication stops after a few hours / broker crashes](docs/troubleshooting.md#communication-stops-after-a-few-hours-or-the-log-shows-broker-crashes)
+- [A B2500 stops answering about 30 minutes after a reset](docs/troubleshooting.md#a-b2500-stops-answering-about-30-minutes-after-a-reset)
 - [The battery can't reach a power meter on my home network](docs/troubleshooting.md#the-battery-cant-reach-a-power-meter-on-my-home-network-eg-ecotracker)
 - [hm2mqtt shows all entities as unavailable](docs/troubleshooting.md#hm2mqtt-shows-all-entities-as-unavailable)
 - [Can I run Marsrelay on a Raspberry Pi?](docs/troubleshooting.md#can-i-run-marsrelay-on-a-raspberry-pi-instead-of-an-esp32)

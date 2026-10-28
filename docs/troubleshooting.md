@@ -93,6 +93,12 @@ If the log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable t
 
 Long-running dropouts where MQTT and UDP stop together while WiFi stays up are still being investigated in [issue #10](https://github.com/tomquist/marsrelay/issues/10). The UDP proxy also retries its own start now, so a proxy whose sockets never came up no longer needs a reboot either.
 
+## A B2500 stops answering about 30 minutes after a reset
+
+Symptoms: after a battery reset everything works, then data stops for good about half an hour later. `Commands relayed` keeps counting while `Battery messages` stands still, hm2mqtt reports no response, and restarting Marsrelay does not help. Only resetting the battery does, until the next time.
+
+The battery leaves the access point by itself every half hour or so and rejoins a few seconds later; the log shows `AP client <mac> left (reason ...)` followed by `joined`. Usually its MQTT connection survives that. When it does not, the battery only sets the connection up again after a longer outage. Turn on [`recover_stuck_devices`](../README.md#recovering-a-battery-stuck-after-a-wifi-drop) to have Marsrelay give it that outage automatically. Discussed in [issue #66](https://github.com/tomquist/marsrelay/issues/66).
+
 ## The battery can't reach a power meter on my home network (e.g. EcoTracker)
 
 The Marsrelay access point is a separate network, so devices on your home LAN are not directly reachable from the battery. `udp_proxy` bridges exactly one thing: **UDP broadcasts** of the supported meter protocols (Shelly, CT00x). TCP-polled meters — such as the everHome EcoTracker — cannot be bridged this way ([issue #16](https://github.com/tomquist/marsrelay/issues/16)).

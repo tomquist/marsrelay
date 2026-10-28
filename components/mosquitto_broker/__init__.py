@@ -6,7 +6,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 from esphome.components import esp32
-from esphome.const import CONF_ID, CONF_PORT, CONF_TIMEOUT, CONF_TRIGGER_ID
+from esphome.const import CONF_DURATION, CONF_ID, CONF_PORT, CONF_TIMEOUT, CONF_TRIGGER_ID
 
 CODEOWNERS = ["@marsrelay"]
 DEPENDENCIES = ["esp32"]
@@ -22,6 +22,7 @@ CONF_TLS_SKIP_VERIFICATION = "tls_skip_verification"
 CONF_ID_MAPPINGS = "id_mappings"
 CONF_DEVICE = "device"
 CONF_EXTERNAL = "external"
+CONF_RECOVER_STUCK_DEVICES = "recover_stuck_devices"
 
 # Topic segments that have structural meaning in the marsrelay bridge. If a
 # mapping's `device` or `external` value collided with one of these, the
@@ -144,6 +145,23 @@ def _liveness_automation(default_timeout: str):
     )
 
 
+# A battery that loses its MQTT session in a short WiFi drop only rebuilds it
+# after a longer outage. `timeout` is how long relayed commands may go
+# unanswered first; `duration` is how long the clients that rejoined since its
+# last message are then kept off the access point.
+RECOVER_STUCK_DEVICES_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_TIMEOUT, default="5min"): cv.All(
+            cv.positive_time_period_milliseconds,
+            cv.Range(min=cv.TimePeriod(minutes=1)),
+        ),
+        cv.Optional(CONF_DURATION, default="60s"): cv.All(
+            cv.positive_time_period_milliseconds,
+            cv.Range(min=cv.TimePeriod(seconds=10), max=cv.TimePeriod(minutes=10)),
+        ),
+    }
+)
+
 CONFIG_SCHEMA = (
     cv.Schema(
         {
@@ -160,6 +178,7 @@ CONFIG_SCHEMA = (
             ),
             cv.Optional(CONF_ON_DEVICE_TIMEOUT): _liveness_automation("15min"),
             cv.Optional(CONF_ON_DEVICE_RECOVERED): _liveness_automation("15min"),
+            cv.Optional(CONF_RECOVER_STUCK_DEVICES): RECOVER_STUCK_DEVICES_SCHEMA,
             cv.Optional(CONF_ID_MAPPINGS, default=[]): cv.All(
                 cv.ensure_list(
                     cv.Schema(
@@ -215,6 +234,14 @@ async def to_code(config):
             config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds
         )
     )
+
+    if (recovery := config.get(CONF_RECOVER_STUCK_DEVICES)) is not None:
+        cg.add(
+            var.set_stuck_recovery(
+                recovery[CONF_TIMEOUT].total_milliseconds,
+                recovery[CONF_DURATION].total_milliseconds,
+            )
+        )
 
     esp32.add_idf_component(name="espressif/mosquitto", ref="2.0.20")
     if config[CONF_TLS]:
