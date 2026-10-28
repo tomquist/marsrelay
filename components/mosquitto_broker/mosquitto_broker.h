@@ -210,9 +210,14 @@ class MosquittoBroker : public Component {
     uint16_t aid{0};
     bool connected{false};
     uint32_t last_join{0};
+    bool has_left{false};
+    uint32_t last_leave{0};
     /// Turned away on every rejoin until `blocked_until`.
     bool blocked{false};
     uint32_t blocked_until{0};
+    /// Whether it has left since it was blocked; only the first departure is
+    /// logged at DEBUG.
+    bool left_while_blocked{false};
   };
 
   uint16_t port_{1883};

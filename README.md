@@ -436,7 +436,7 @@ mosquitto_broker:
     duration: 60s    # how long to keep the battery off the access point
 ```
 
-Once commands for a battery have gone unanswered for `timeout`, Marsrelay keeps the WiFi clients that rejoined the access point since that battery's last message off it for `duration`, after which the battery reconnects from scratch. Clients that did not rejoin are left alone. It acts at most once per `timeout`, and only for batteries that are being polled (by hm2mqtt, for example) and that have published through this Marsrelay since it last started; a battery that was already stuck when Marsrelay restarted needs one reset. Both settings are optional; an empty `recover_stuck_devices: {}` uses the defaults shown.
+Once commands for a battery have gone unanswered for `timeout`, Marsrelay looks for the WiFi client that dropped off the access point between the battery's last answer and the first command it missed: that drop is what silenced it. It keeps that client off the access point for `duration`, after which the battery reconnects from scratch. Clients that did not drop off in that window are left alone, and if none did, nothing happens. It acts at most once per `timeout`, and only for batteries that are being polled (by hm2mqtt, for example) and that have published through this Marsrelay since it last started; a battery that was already stuck when Marsrelay restarted needs one reset. Both settings are optional; an empty `recover_stuck_devices: {}` uses the defaults shown.
 
 The log shows every client joining and leaving the access point, with the reason it left, and a warning whenever a client is kept off.
 

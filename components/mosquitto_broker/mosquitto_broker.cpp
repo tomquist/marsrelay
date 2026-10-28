@@ -24,6 +24,9 @@ static const uint32_t SELF_POLL_RESEND_DELAY_MS = 1000;
 static MosquittoBroker *global_broker = nullptr;
 // How often loop() looks for batteries that stopped answering.
 static const uint32_t STUCK_CHECK_INTERVAL_MS = 5000;
+// A battery can drop off the access point just after a command reached the
+// relay, before it answered; count such a drop as the one that silenced it.
+static const uint32_t LEAVE_AFTER_COMMAND_SLACK_MS = 30000;
 
 // Embedded self-signed certificate and key for TLS
 // CN=mosquitto-broker, valid from 2026-01-21 to 2032-01-20
@@ -690,6 +693,7 @@ void MosquittoBroker::on_station_joined_(const uint8_t *mac, uint16_t aid) {
       remaining_ms = station.blocked_until - now;
     } else {
       station.blocked = false;
+      station.left_while_blocked = false;
     }
   }
   if (turn_away) {
@@ -704,16 +708,21 @@ void MosquittoBroker::on_station_joined_(const uint8_t *mac, uint16_t aid) {
 // Runs on the default event loop task.
 void MosquittoBroker::on_station_left_(const uint8_t *mac, uint16_t reason) {
   const uint64_t key = mac_key(mac);
-  bool blocked;
+  bool repeat;
   {
     LockGuard guard(this->stations_lock_);
     Station &station = this->stations_[key];
     station.connected = false;
-    blocked = station.blocked;
+    station.has_left = true;
+    station.last_leave = esphome::millis();
+    repeat = station.blocked && station.left_while_blocked;
+    if (station.blocked) {
+      station.left_while_blocked = true;
+    }
   }
   // A client being kept off leaves on every rejoin attempt; only its first
   // departure is news.
-  if (blocked) {
+  if (repeat) {
     ESP_LOGV(TAG, "AP client %s left (reason %u: %s)", mac_str(key).c_str(), reason, leave_reason_name(reason));
   } else {
     ESP_LOGD(TAG, "AP client %s left (reason %u: %s)", mac_str(key).c_str(), reason, leave_reason_name(reason));
@@ -754,12 +763,19 @@ void MosquittoBroker::note_command_(const std::string &topic) {
 // with its MQTT session gone. Its controller only rebuilds the session after
 // a longer outage, so it then stays silent until the battery is reset. Give it
 // that outage: once commands relayed to it have gone unanswered for
-// `stuck_timeout_ms_`, keep the clients that rejoined since its last message
-// off the access point for `kick_duration_ms_`. Clients that did not rejoin
-// are left alone, and nothing happens for a battery nobody is polling.
+// `stuck_timeout_ms_`, keep the clients that dropped off the access point
+// between its last message and the first command it missed off it for
+// `kick_duration_ms_`. That drop is what silenced it; a client that did not
+// drop in that window is left alone, and nothing happens for a battery nobody
+// is polling.
 void MosquittoBroker::check_stuck_devices_() {
   const uint32_t now = esphome::millis();
-  std::vector<std::pair<std::string, uint32_t>> stuck;
+  struct Stuck {
+    std::string id;
+    uint32_t last_message;
+    uint32_t unanswered_since;
+  };
+  std::vector<Stuck> stuck;
   {
     LockGuard guard(this->devices_lock_);
     for (auto &kv : this->devices_) {
@@ -770,37 +786,47 @@ void MosquittoBroker::check_stuck_devices_() {
       if (device.recovery_attempted && now - device.last_recovery < this->stuck_timeout_ms_) {
         continue;
       }
+      // Whether or not a client qualifies below: the window it is looked for
+      // in is in the past, so checking again before the next timeout would
+      // find the same answer.
       device.recovery_attempted = true;
       device.last_recovery = now;
-      stuck.emplace_back(kv.first, device.last_message);
+      stuck.push_back(Stuck{kv.first, device.last_message, device.unanswered_since});
     }
   }
 
-  for (const auto &entry : stuck) {
-    const std::string &id = entry.first;
-    const uint32_t last_message = entry.second;
+  for (const auto &device : stuck) {
+    // Clients that dropped off between the device's last message and the first
+    // command it missed. One still offline is blocked too, so the outage
+    // starts now rather than when it would have rejoined.
     std::vector<std::pair<uint64_t, uint16_t>> kick;
+    bool found = false;
     {
       LockGuard guard(this->stations_lock_);
       for (auto &kv : this->stations_) {
         Station &station = kv.second;
-        if (!station.connected || (int32_t) (station.last_join - last_message) <= 0) {
+        if (!station.has_left || (int32_t) (station.last_leave - device.last_message) <= 0 ||
+            (int32_t) (station.last_leave - (device.unanswered_since + LEAVE_AFTER_COMMAND_SLACK_MS)) > 0) {
           continue;
         }
+        found = true;
         station.blocked = true;
         station.blocked_until = now + this->kick_duration_ms_;
-        kick.emplace_back(kv.first, station.aid);
+        station.left_while_blocked = false;
+        ESP_LOGW(TAG, "Device %s stopped answering after AP client %s dropped off the AP; keeping that client off "
+                 "for %u s so it reconnects from scratch", device.id.c_str(), mac_str(kv.first).c_str(),
+                 (unsigned) (this->kick_duration_ms_ / 1000));
+        if (station.connected) {
+          kick.emplace_back(kv.first, station.aid);
+        }
       }
     }
-    if (kick.empty()) {
-      ESP_LOGD(TAG, "Device %s has not answered for %u s, but no AP client rejoined since its last message; "
-               "leaving it alone", id.c_str(), (unsigned) ((now - last_message) / 1000));
-      continue;
+    if (!found) {
+      ESP_LOGD(TAG, "Device %s has not answered for %u s, but no AP client dropped off between its last message "
+               "and the first command it missed; leaving it alone", device.id.c_str(),
+               (unsigned) ((now - device.last_message) / 1000));
     }
     for (const auto &station : kick) {
-      ESP_LOGW(TAG, "Device %s stopped answering after AP client %s rejoined; keeping that client off the AP for "
-               "%u s so it reconnects from scratch", id.c_str(), mac_str(station.first).c_str(),
-               (unsigned) (this->kick_duration_ms_ / 1000));
       esp_wifi_deauth_sta(station.second);
     }
   }
