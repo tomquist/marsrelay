@@ -27,8 +27,17 @@ static const uint32_t STUCK_CHECK_INTERVAL_MS = 5000;
 // A battery can drop off the access point just after a command reached the
 // relay, before it answered; count such a drop as the one that silenced it.
 static const uint32_t LEAVE_AFTER_COMMAND_SLACK_MS = 30000;
-// Attempts per silence before recovery gives up on a battery.
+// Attempts per silence before recovery gives up on a battery. Each attempt
+// refuses the battery for twice as long as the last, so a too-short first
+// block corrects itself without the maintainer having to find the exact
+// figure.
 static const uint8_t MAX_STUCK_ATTEMPTS = 3;
+static const uint32_t MAX_BLOCK_MS = 600000;
+// After a block, how long to let the battery reconnect and rebuild before
+// deciding the block was too short and trying a longer one. A full recovery
+// took well under a minute in the field; this leaves ample room so an
+// in-progress one is never cut off.
+static const uint32_t POST_BLOCK_GRACE_MS = 90000;
 // Departures remembered; a stuck battery leaves every few minutes.
 static const size_t MAX_DEPARTURES = 32;
 
@@ -852,6 +861,12 @@ void MosquittoBroker::check_stuck_devices_() {
     const bool back = !connected_suspects.empty();
     const unsigned silent_s = (unsigned) ((now - device.last_message) / 1000);
     const bool give_up = device.attempts >= MAX_STUCK_ATTEMPTS;
+    // Doubled on each attempt: the first block is the configured length, then
+    // twice that, and so on up to the cap.
+    uint32_t block_ms = this->block_duration_ms_;
+    for (uint8_t i = 0; i < device.attempts && block_ms < MAX_BLOCK_MS; i++) {
+      block_ms = block_ms > MAX_BLOCK_MS / 2 ? MAX_BLOCK_MS : block_ms * 2;
+    }
 
     bool act = false;
     {
@@ -865,9 +880,10 @@ void MosquittoBroker::check_stuck_devices_() {
         it->second.gave_up = true;
       } else if (back) {
         it->second.blocks++;
-        // Look again once the block is over and the battery had a timeout to
-        // answer.
-        it->second.next_check = now + this->block_duration_ms_ + this->stuck_timeout_ms_;
+        // Look again just after the block, not a whole timeout later: if it
+        // was too short the retry comes quickly, and a battery that recovers
+        // resets this itself when it publishes.
+        it->second.next_check = now + block_ms + POST_BLOCK_GRACE_MS;
         act = true;
       }
     }
@@ -896,9 +912,9 @@ void MosquittoBroker::check_stuck_devices_() {
     }
     ESP_LOGW(TAG, "Device %s stopped answering after AP client %s dropped off and came back; refusing its "
              "connection for %u s so it reconnects from scratch (attempt %u of %u)", device.id.c_str(),
-             macs.c_str(), (unsigned) (this->block_duration_ms_ / 1000), (unsigned) device.attempts + 1,
+             macs.c_str(), (unsigned) (block_ms / 1000), (unsigned) device.attempts + 1,
              (unsigned) MAX_STUCK_ATTEMPTS);
-    const uint32_t until = now + this->block_duration_ms_;
+    const uint32_t until = now + block_ms;
     for (uint64_t mac : device.suspects) {
       marsrelay_ap_reject_add(mac, until);
     }
