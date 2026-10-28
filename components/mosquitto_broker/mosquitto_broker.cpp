@@ -6,7 +6,6 @@
 #include "mqtt_client.h"
 #include "esp_event.h"
 #include "esp_wifi.h"
-#include "esp_random.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -28,12 +27,10 @@ static const uint32_t STUCK_CHECK_INTERVAL_MS = 5000;
 // A battery can drop off the access point just after a command reached the
 // relay, before it answered; count such a drop as the one that silenced it.
 static const uint32_t LEAVE_AFTER_COMMAND_SLACK_MS = 30000;
-// Pauses per silence before recovery gives up on a battery.
-static const uint8_t MAX_AP_PAUSES = 3;
+// Attempts per silence before recovery gives up on a battery.
+static const uint8_t MAX_STUCK_ATTEMPTS = 3;
 // Departures remembered; a stuck battery leaves every few minutes.
 static const size_t MAX_DEPARTURES = 32;
-// What the access point is called while it is paused.
-static const char *const PAUSED_SSID = "marsrelay-paused";
 
 // Embedded self-signed certificate and key for TLS
 // CN=mosquitto-broker, valid from 2026-01-21 to 2032-01-20
@@ -155,10 +152,6 @@ void MosquittoBroker::loop() {
 
   this->resend_self_poll_();
 
-  if (this->ap_paused_ && now - this->ap_paused_at_ >= this->pause_duration_ms_) {
-    this->resume_ap_();
-  }
-
   if (this->stuck_recovery_ && now - this->last_stuck_check_ >= STUCK_CHECK_INTERVAL_MS) {
     this->last_stuck_check_ = now;
     this->check_stuck_devices_();
@@ -272,8 +265,8 @@ void MosquittoBroker::dump_config() {
   ESP_LOGCONFIG(TAG, "  Max Clients: %u", this->max_clients_);
   ESP_LOGCONFIG(TAG, "  ID Mappings: %u", (unsigned) this->id_mappings_.size());
   if (this->stuck_recovery_) {
-    ESP_LOGCONFIG(TAG, "  Stuck device recovery: after %u s unanswered, pause the AP for %u s",
-                  (unsigned) (this->stuck_timeout_ms_ / 1000), (unsigned) (this->pause_duration_ms_ / 1000));
+    ESP_LOGCONFIG(TAG, "  Stuck device recovery: after %u s unanswered, refuse the battery for %u s",
+                  (unsigned) (this->stuck_timeout_ms_ / 1000), (unsigned) (this->block_duration_ms_ / 1000));
   }
 }
 
@@ -689,13 +682,10 @@ void MosquittoBroker::ap_event_handler_(void *arg, esp_event_base_t base, int32_
 
 // Runs on the default event loop task.
 void MosquittoBroker::on_station_joined_(const uint8_t *mac, uint16_t aid) {
-  (void) aid;
   const uint64_t key = mac_key(mac);
   {
     LockGuard guard(this->stations_lock_);
-    if (std::find(this->connected_.begin(), this->connected_.end(), key) == this->connected_.end()) {
-      this->connected_.push_back(key);
-    }
+    this->connected_[key] = aid;
   }
   ESP_LOGD(TAG, "AP client %s joined", mac_str(key).c_str());
 }
@@ -705,7 +695,7 @@ void MosquittoBroker::on_station_left_(const uint8_t *mac, uint16_t reason) {
   const uint64_t key = mac_key(mac);
   {
     LockGuard guard(this->stations_lock_);
-    this->connected_.erase(std::remove(this->connected_.begin(), this->connected_.end(), key), this->connected_.end());
+    this->connected_.erase(key);
     if (this->departures_.size() >= MAX_DEPARTURES) {
       this->departures_.erase(this->departures_.begin());
     }
@@ -726,7 +716,7 @@ void MosquittoBroker::note_device_message_(const std::string &topic) {
   device.unanswered = false;
   device.checked = false;
   device.suspects.clear();
-  device.pauses = 0;
+  device.blocks = 0;
   device.gave_up = false;
 }
 
@@ -747,29 +737,79 @@ void MosquittoBroker::note_command_(const std::string &topic) {
   it->second.unanswered_since = esphome::millis();
 }
 
-// A battery can drop off the access point for a few seconds and come back
-// with its MQTT session gone. Its WiFi module reconnects by itself and does
-// not tell the battery, so the battery never rebuilds the session and stays
-// silent until it is reset. What the module does report is not finding the
-// access point at all, and the battery then starts over. So once commands
-// relayed to it have gone unanswered for `stuck_timeout_ms_`, and a client
-// that dropped off the access point between its last message and the first
-// command it missed is back on it, take the access point away for
-// `pause_duration_ms_`. Every client on it drops for that long. Nothing happens
-// for a battery nobody polls, or when no client dropped in that window. If the
-// battery is still silent a timeout after the pause, it is paused again, up to
-// MAX_AP_PAUSES times.
-void MosquittoBroker::check_stuck_devices_() {
-  if (this->ap_paused_) {
-    return;
+// Clients the access point must refuse right now, with the time each block
+// ends. Written from the loop (recovery) and read from the WiFi task (the
+// association hook below), so a short critical section guards it.
+namespace {
+struct ApReject {
+  uint64_t mac{0};
+  uint32_t until{0};
+};
+portMUX_TYPE s_ap_reject_mux = portMUX_INITIALIZER_UNLOCKED;
+ApReject s_ap_reject[8];
+}  // namespace
+
+extern "C" void marsrelay_ap_reject_add(uint64_t mac, uint32_t until_ms) {
+  const uint32_t now = esphome::millis();
+  portENTER_CRITICAL(&s_ap_reject_mux);
+  int slot = -1;
+  for (size_t i = 0; i < sizeof(s_ap_reject) / sizeof(s_ap_reject[0]); i++) {
+    if (s_ap_reject[i].mac == mac) {
+      s_ap_reject[i].until = until_ms;
+      portEXIT_CRITICAL(&s_ap_reject_mux);
+      return;
+    }
+    if (slot < 0 && (s_ap_reject[i].mac == 0 || (int32_t) (s_ap_reject[i].until - now) <= 0)) {
+      slot = (int) i;
+    }
   }
+  if (slot >= 0) {
+    s_ap_reject[slot].mac = mac;
+    s_ap_reject[slot].until = until_ms;
+  }
+  portEXIT_CRITICAL(&s_ap_reject_mux);
+}
+
+extern "C" bool marsrelay_ap_reject_check(const uint8_t *mac) {
+  uint64_t key = 0;
+  for (int i = 0; i < 6; i++) {
+    key = (key << 8) | mac[i];
+  }
+  const uint32_t now = esphome::millis();
+  bool blocked = false;
+  portENTER_CRITICAL(&s_ap_reject_mux);
+  for (auto &e : s_ap_reject) {
+    if (e.mac == key && (int32_t) (e.until - now) > 0) {
+      blocked = true;
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&s_ap_reject_mux);
+  return blocked;
+}
+
+// A battery can drop off the access point for a moment and come back with its
+// MQTT session gone. Its WiFi module reconnects by itself after an ordinary
+// drop and does not tell the battery, so the battery never rebuilds the
+// session and stays silent until it is reset. What the module does report to
+// the battery is a connection it cannot complete at all, and the battery then
+// starts over from scratch. So once commands relayed to a battery have gone
+// unanswered for `stuck_timeout_ms_`, and a client that dropped off the access
+// point between its last message and the first command it missed is back on
+// it, refuse that one client for `block_duration_ms_`: the access point turns
+// its connection attempts away, its module reports the failure, and the
+// battery rebuilds everything. Only that client is affected. Nothing happens
+// for a battery nobody polls, or when no client dropped in that window. If the
+// battery is still silent a timeout after the block ends, it is refused again,
+// up to MAX_STUCK_ATTEMPTS times.
+void MosquittoBroker::check_stuck_devices_() {
   const uint32_t now = esphome::millis();
   struct Stuck {
     std::string id;
     uint32_t last_message;
     uint32_t unanswered_since;
     std::vector<uint64_t> suspects;
-    uint8_t pauses;
+    uint8_t attempts;
   };
   std::vector<Stuck> stuck;
   {
@@ -784,16 +824,13 @@ void MosquittoBroker::check_stuck_devices_() {
       }
       device.checked = true;
       device.next_check = now + this->stuck_timeout_ms_;
-      stuck.push_back(Stuck{kv.first, device.last_message, device.unanswered_since, device.suspects, device.pauses});
+      stuck.push_back(Stuck{kv.first, device.last_message, device.unanswered_since, device.suspects, device.blocks});
     }
   }
-  if (stuck.empty()) {
-    return;
-  }
 
-  bool pause = false;
   for (auto &device : stuck) {
-    bool back = false;
+    // The suspect clients (found once, then kept) and whichever are connected.
+    std::vector<std::pair<uint64_t, uint16_t>> connected_suspects;
     {
       LockGuard guard(this->stations_lock_);
       if (device.suspects.empty()) {
@@ -806,35 +843,35 @@ void MosquittoBroker::check_stuck_devices_() {
         }
       }
       for (uint64_t mac : device.suspects) {
-        if (std::find(this->connected_.begin(), this->connected_.end(), mac) != this->connected_.end()) {
-          back = true;
+        auto it = this->connected_.find(mac);
+        if (it != this->connected_.end()) {
+          connected_suspects.emplace_back(mac, it->second);
         }
       }
     }
+    const bool back = !connected_suspects.empty();
     const unsigned silent_s = (unsigned) ((now - device.last_message) / 1000);
-    bool answered = false;
-    bool give_up = device.pauses >= MAX_AP_PAUSES;
+    const bool give_up = device.attempts >= MAX_STUCK_ATTEMPTS;
+
+    bool act = false;
     {
       LockGuard guard(this->devices_lock_);
       auto it = this->devices_.find(device.id);
-      // Unless it answered in the meantime, which resets all of this.
       if (it == this->devices_.end() || !it->second.unanswered) {
-        answered = true;
-      } else {
-        it->second.suspects = device.suspects;
-        if (back && give_up) {
-          it->second.gave_up = true;
-        } else if (back) {
-          it->second.pauses++;
-          // Another look once the pause is over and the battery had a timeout
-          // to answer.
-          it->second.next_check = now + this->pause_duration_ms_ + this->stuck_timeout_ms_;
-        }
+        continue;  // answered in the meantime, which reset its state
+      }
+      it->second.suspects = device.suspects;
+      if (back && give_up) {
+        it->second.gave_up = true;
+      } else if (back) {
+        it->second.blocks++;
+        // Look again once the block is over and the battery had a timeout to
+        // answer.
+        it->second.next_check = now + this->block_duration_ms_ + this->stuck_timeout_ms_;
+        act = true;
       }
     }
-    if (answered) {
-      continue;
-    }
+
     if (device.suspects.empty()) {
       ESP_LOGD(TAG, "Device %s has not answered for %u s, but no AP client dropped off between its last message "
                "and the first command it missed; leaving it alone", device.id.c_str(), silent_s);
@@ -850,71 +887,55 @@ void MosquittoBroker::check_stuck_devices_() {
       continue;
     }
     if (give_up) {
-      ESP_LOGW(TAG, "Device %s is still not answering after %u access point pauses; giving up until it publishes "
-               "again. Resetting the battery brings it back.", device.id.c_str(), (unsigned) MAX_AP_PAUSES);
+      ESP_LOGW(TAG, "Device %s is still not answering after %u attempts; giving up until it publishes again. "
+               "Resetting the battery brings it back.", device.id.c_str(), (unsigned) MAX_STUCK_ATTEMPTS);
       continue;
     }
-    ESP_LOGW(TAG, "Device %s stopped answering after AP client %s dropped off the AP and came back (pause %u of %u)",
-             device.id.c_str(), macs.c_str(), (unsigned) device.pauses + 1, (unsigned) MAX_AP_PAUSES);
-    pause = true;
+    if (!act) {
+      continue;
+    }
+    ESP_LOGW(TAG, "Device %s stopped answering after AP client %s dropped off and came back; refusing its "
+             "connection for %u s so it reconnects from scratch (attempt %u of %u)", device.id.c_str(),
+             macs.c_str(), (unsigned) (this->block_duration_ms_ / 1000), (unsigned) device.attempts + 1,
+             (unsigned) MAX_STUCK_ATTEMPTS);
+    const uint32_t until = now + this->block_duration_ms_;
+    for (uint64_t mac : device.suspects) {
+      marsrelay_ap_reject_add(mac, until);
+    }
+    for (const auto &cs : connected_suspects) {
+      esp_wifi_deauth_sta(cs.second);
+    }
   }
-  if (pause) {
-    this->pause_ap_();
-  }
-}
-
-// Swaps the access point for a hidden one nobody can join, so a battery that
-// rescans for the real one does not find it. The real settings come back in
-// resume_ap_().
-bool MosquittoBroker::pause_ap_() {
-  wifi_config_t conf{};
-  if (esp_wifi_get_config(WIFI_IF_AP, &conf) != ESP_OK || conf.ap.ssid_len == 0) {
-    ESP_LOGW(TAG, "Could not read the access point settings; not pausing it");
-    return false;
-  }
-  this->saved_ap_config_ = conf;
-
-  wifi_config_t paused = conf;
-  memset(paused.ap.ssid, 0, sizeof(paused.ap.ssid));
-  memcpy(paused.ap.ssid, PAUSED_SSID, strlen(PAUSED_SSID));
-  paused.ap.ssid_len = strlen(PAUSED_SSID);
-  paused.ap.ssid_hidden = 1;
-  // A password nobody knows, so nothing joins in the meantime.
-  static const char ALPHABET[] = "abcdefghijklmnopqrstuvwxyz0123456789";
-  memset(paused.ap.password, 0, sizeof(paused.ap.password));
-  for (size_t i = 0; i < 24; i++) {
-    paused.ap.password[i] = ALPHABET[esp_random() % (sizeof(ALPHABET) - 1)];
-  }
-  paused.ap.authmode = WIFI_AUTH_WPA2_PSK;
-  esp_err_t err = esp_wifi_set_config(WIFI_IF_AP, &paused);
-  if (err != ESP_OK) {
-    ESP_LOGW(TAG, "Could not pause the access point: %s", esp_err_to_name(err));
-    return false;
-  }
-  this->ap_paused_ = true;
-  this->ap_paused_at_ = esphome::millis();
-  ESP_LOGW(TAG, "Access point paused for %u s; every client on it is off until then",
-           (unsigned) (this->pause_duration_ms_ / 1000));
-  return true;
-}
-
-void MosquittoBroker::resume_ap_() {
-  this->ap_paused_ = false;
-  wifi_config_t current{};
-  // If the wifi component set the access point up again in the meantime, its
-  // settings are the real ones already.
-  if (esp_wifi_get_config(WIFI_IF_AP, &current) == ESP_OK &&
-      (current.ap.ssid_len != strlen(PAUSED_SSID) || memcmp(current.ap.ssid, PAUSED_SSID, current.ap.ssid_len) != 0)) {
-    ESP_LOGI(TAG, "Access point is back already");
-    return;
-  }
-  esp_err_t err = esp_wifi_set_config(WIFI_IF_AP, &this->saved_ap_config_);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Could not restore the access point: %s", esp_err_to_name(err));
-    return;
-  }
-  ESP_LOGI(TAG, "Access point resumed");
 }
 
 }  // namespace mosquitto_broker
 }  // namespace esphome
+
+#ifdef USE_MARSRELAY_AP_REJECT
+// The access point hands every new association to hostap_new_assoc_sta, in
+// ESP-IDF's wpa_supplicant. Returning false makes it deauthenticate that one
+// client with the given reason -- the same thing a wrong password would do to
+// it, which is what gets a stuck battery's module to report a failure and
+// start over. The real function and its only caller are in different objects,
+// so -Wl,--wrap replaces the call. We refuse only the MACs recovery marked
+// (see marsrelay_ap_reject_add); everything else passes straight through.
+struct sta_info;
+extern "C" bool marsrelay_ap_reject_check(const uint8_t *mac);
+// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
+extern "C" bool __real_hostap_new_assoc_sta(struct sta_info *sta, uint8_t *bssid, uint8_t *wpa_ie,
+                                            uint8_t wpa_ie_len, uint8_t *rsnxe, uint16_t rsnxe_len,
+                                            bool *pmf_enable, int subtype, uint8_t *pairwise_cipher, uint8_t *reason);
+extern "C" bool __wrap_hostap_new_assoc_sta(struct sta_info *sta, uint8_t *bssid, uint8_t *wpa_ie,
+                                            uint8_t wpa_ie_len, uint8_t *rsnxe, uint16_t rsnxe_len,
+                                            bool *pmf_enable, int subtype, uint8_t *pairwise_cipher, uint8_t *reason) {
+  if (bssid != nullptr && marsrelay_ap_reject_check(bssid)) {
+    if (reason != nullptr) {
+      *reason = 1;  // WIFI_REASON_UNSPECIFIED
+    }
+    return false;
+  }
+  return __real_hostap_new_assoc_sta(sta, bssid, wpa_ie, wpa_ie_len, rsnxe, rsnxe_len, pmf_enable, subtype,
+                                     pairwise_cipher, reason);
+}
+// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
+#endif  // USE_MARSRELAY_AP_REJECT

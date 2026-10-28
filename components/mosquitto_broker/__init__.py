@@ -244,6 +244,14 @@ async def to_code(config):
                 recovery[CONF_DURATION].total_milliseconds,
             )
         )
+        # Refuse a stuck battery's association by wrapping the access point's
+        # own association hook. --undefined keeps the wrapper, which lives in
+        # this component's libsrc.a (scanned before the IDF library that calls
+        # the real function), from being dropped before the linker rewrites
+        # the call.
+        cg.add_define("USE_MARSRELAY_AP_REJECT")
+        cg.add_build_flag("-Wl,--wrap=hostap_new_assoc_sta")
+        cg.add_build_flag("-Wl,--undefined=__wrap_hostap_new_assoc_sta")
 
     esp32.add_idf_component(name="espressif/mosquitto", ref="2.0.20")
     if config[CONF_TLS]:
