@@ -204,6 +204,15 @@ class MosquittoBroker : public Component {
     /// When recovery last acted on it, so it does not act again every loop.
     bool recovery_attempted{false};
     uint32_t last_recovery{0};
+    /// The clients whose drop silenced it, found on the first attempt and
+    /// kept for the retries: a later drop, the client's own or one caused by
+    /// recovery, must not replace it.
+    std::vector<uint64_t> suspects;
+    /// Kicks so far; each retry doubles the time a suspect is kept off.
+    uint8_t kicks{0};
+    /// How long the last kick kept the suspects off. The next attempt waits
+    /// for that outage to end, plus a full timeout for the device to answer.
+    uint32_t last_kick_duration{0};
   };
   /// A client of the access point, keyed by MAC address.
   struct Station {

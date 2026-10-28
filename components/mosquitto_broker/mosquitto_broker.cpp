@@ -27,6 +27,8 @@ static const uint32_t STUCK_CHECK_INTERVAL_MS = 5000;
 // A battery can drop off the access point just after a command reached the
 // relay, before it answered; count such a drop as the one that silenced it.
 static const uint32_t LEAVE_AFTER_COMMAND_SLACK_MS = 30000;
+// Each retry keeps a suspect off twice as long as the one before, up to this.
+static const uint32_t MAX_KICK_DURATION_MS = 600000;
 
 // Embedded self-signed certificate and key for TLS
 // CN=mosquitto-broker, valid from 2026-01-21 to 2032-01-20
@@ -740,6 +742,9 @@ void MosquittoBroker::note_device_message_(const std::string &topic) {
   device.last_message = esphome::millis();
   device.unanswered = false;
   device.recovery_attempted = false;
+  device.suspects.clear();
+  device.kicks = 0;
+  device.last_kick_duration = 0;
 }
 
 // Runs on the loop task, for every command relayed towards a battery.
@@ -767,13 +772,16 @@ void MosquittoBroker::note_command_(const std::string &topic) {
 // between its last message and the first command it missed off it for
 // `kick_duration_ms_`. That drop is what silenced it; a client that did not
 // drop in that window is left alone, and nothing happens for a battery nobody
-// is polling.
+// is polling. If the device is still silent a timeout after the outage ended,
+// the same clients are kept off again, twice as long each time.
 void MosquittoBroker::check_stuck_devices_() {
   const uint32_t now = esphome::millis();
   struct Stuck {
     std::string id;
     uint32_t last_message;
     uint32_t unanswered_since;
+    std::vector<uint64_t> suspects;
+    uint8_t kicks;
   };
   std::vector<Stuck> stuck;
   {
@@ -783,7 +791,8 @@ void MosquittoBroker::check_stuck_devices_() {
       if (!device.unanswered || now - device.unanswered_since < this->stuck_timeout_ms_) {
         continue;
       }
-      if (device.recovery_attempted && now - device.last_recovery < this->stuck_timeout_ms_) {
+      if (device.recovery_attempted &&
+          now - device.last_recovery < this->stuck_timeout_ms_ + device.last_kick_duration) {
         continue;
       }
       // Whether or not a client qualifies below: the window it is looked for
@@ -791,43 +800,70 @@ void MosquittoBroker::check_stuck_devices_() {
       // find the same answer.
       device.recovery_attempted = true;
       device.last_recovery = now;
-      stuck.push_back(Stuck{kv.first, device.last_message, device.unanswered_since});
+      stuck.push_back(Stuck{kv.first, device.last_message, device.unanswered_since, device.suspects, device.kicks});
     }
   }
 
-  for (const auto &device : stuck) {
-    // Clients that dropped off between the device's last message and the first
-    // command it missed. One still offline is blocked too, so the outage
-    // starts now rather than when it would have rejoined.
-    std::vector<std::pair<uint64_t, uint16_t>> kick;
-    bool found = false;
-    {
+  for (auto &device : stuck) {
+    if (device.suspects.empty()) {
+      // First attempt: the clients that dropped off between the device's last
+      // message and the first command it missed.
       LockGuard guard(this->stations_lock_);
-      for (auto &kv : this->stations_) {
-        Station &station = kv.second;
-        if (!station.has_left || (int32_t) (station.last_leave - device.last_message) <= 0 ||
-            (int32_t) (station.last_leave - (device.unanswered_since + LEAVE_AFTER_COMMAND_SLACK_MS)) > 0) {
-          continue;
-        }
-        found = true;
-        station.blocked = true;
-        station.blocked_until = now + this->kick_duration_ms_;
-        station.left_while_blocked = false;
-        ESP_LOGW(TAG, "Device %s stopped answering after AP client %s dropped off the AP; keeping that client off "
-                 "for %u s so it reconnects from scratch", device.id.c_str(), mac_str(kv.first).c_str(),
-                 (unsigned) (this->kick_duration_ms_ / 1000));
-        if (station.connected) {
-          kick.emplace_back(kv.first, station.aid);
+      for (const auto &kv : this->stations_) {
+        const Station &station = kv.second;
+        if (station.has_left && (int32_t) (station.last_leave - device.last_message) > 0 &&
+            (int32_t) (station.last_leave - (device.unanswered_since + LEAVE_AFTER_COMMAND_SLACK_MS)) <= 0) {
+          device.suspects.push_back(kv.first);
         }
       }
     }
-    if (!found) {
+    if (device.suspects.empty()) {
       ESP_LOGD(TAG, "Device %s has not answered for %u s, but no AP client dropped off between its last message "
                "and the first command it missed; leaving it alone", device.id.c_str(),
                (unsigned) ((now - device.last_message) / 1000));
+      continue;
     }
-    for (const auto &station : kick) {
-      esp_wifi_deauth_sta(station.second);
+
+    // Doubled on every retry: an outage that was too short to make the
+    // battery rebuild its connection is followed by a longer one.
+    uint32_t duration = this->kick_duration_ms_;
+    for (uint8_t i = 0; i < device.kicks && duration < MAX_KICK_DURATION_MS; i++) {
+      duration *= 2;
+    }
+    duration = std::min(duration, MAX_KICK_DURATION_MS);
+
+    // A suspect still offline is blocked too, so the outage starts now rather
+    // than when it would have rejoined.
+    std::vector<uint16_t> kick;
+    {
+      LockGuard guard(this->stations_lock_);
+      for (uint64_t key : device.suspects) {
+        Station &station = this->stations_[key];
+        station.blocked = true;
+        station.blocked_until = now + duration;
+        station.left_while_blocked = false;
+        ESP_LOGW(TAG, "Device %s stopped answering after AP client %s dropped off the AP; keeping that client off "
+                 "for %u s so it reconnects from scratch (attempt %u)", device.id.c_str(), mac_str(key).c_str(),
+                 (unsigned) (duration / 1000), (unsigned) device.kicks + 1);
+        if (station.connected) {
+          kick.push_back(station.aid);
+        }
+      }
+    }
+    {
+      LockGuard guard(this->devices_lock_);
+      auto it = this->devices_.find(device.id);
+      // Unless the device answered in the meantime, which resets all of this.
+      if (it != this->devices_.end() && it->second.unanswered) {
+        it->second.suspects = device.suspects;
+        it->second.last_kick_duration = duration;
+        if (it->second.kicks < UINT8_MAX) {
+          it->second.kicks++;
+        }
+      }
+    }
+    for (uint16_t aid : kick) {
+      esp_wifi_deauth_sta(aid);
     }
   }
 }
