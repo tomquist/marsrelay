@@ -426,15 +426,7 @@ gating on both, as above.
 
 A B2500 (seen on HMJ-2 firmware V116) leaves the access point by itself every half hour or so and rejoins a few seconds later. Usually its MQTT connection survives. When it does not, the battery stops answering for good: it only sets its cloud connection up again after a longer outage, and a few seconds is too short. Restarting Marsrelay is too short as well; resetting the battery, or keeping it off WiFi for a few minutes, brings it back.
 
-The drops look like a disagreement over protected management frames (PMF, 802.11w): the battery leaves with reason 2 (`auth expired`) or 209 (`SA query timeout`), the second of which only happens with PMF. The ESP32's access point always offers PMF where many routers don't, which would explain why the same battery is fine on a router. To try the access point without it, add:
-
-```yaml
-disable_ap_pmf:
-```
-
-That changes nothing else: the access point keeps its WPA2 password, and the ESP32's own connection to your WiFi is untouched. If the battery then stops dropping off, that was the cause; please report back in [issue #66](https://github.com/tomquist/marsrelay/issues/66) either way.
-
-`recover_stuck_devices` is a safety net for when a battery does get stuck. It keeps the battery off WiFi for you:
+`recover_stuck_devices` does the second for you:
 
 ```yaml
 mosquitto_broker:
