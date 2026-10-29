@@ -95,9 +95,16 @@ Long-running dropouts where MQTT and UDP stop together while WiFi stays up are s
 
 ## A B2500 stops answering about 30 minutes after a reset
 
-Symptoms: after a battery reset everything works, then data stops for good about half an hour later. `Commands relayed` keeps counting while `Battery messages` stands still, hm2mqtt reports no response, and restarting Marsrelay does not help. Only resetting the battery does, until the next time.
+Symptoms: after a battery reset everything works, then data stops for good 20–35 minutes later. `Commands relayed` keeps counting while `Battery messages` stands still, hm2mqtt reports no response, and restarting Marsrelay does not help. Only resetting the battery does, until the next time.
 
-The battery leaves the access point by itself every half hour or so and rejoins a few seconds later; the log shows `AP client <mac> left (reason ...)` followed by `joined`. Usually its MQTT connection survives that. When it does not, the battery only rebuilds its connection once it can't reach its WiFi network at all. Turn on [`recover_stuck_devices`](../README.md#recovering-a-battery-stuck-after-a-wifi-drop) to have Marsrelay refuse that battery's reconnection for a couple of minutes when it gets stuck, which makes it start over. Discussed in [issue #66](https://github.com/tomquist/marsrelay/issues/66).
+Seen on the B2500 (HMJ, firmware V116). About once a minute the battery reports to the cloud with a request whose address is about 1 KB long, more than the ESP32's web server accepted by default (512 bytes). The rejected reports pile up, the battery eventually resets its own WiFi, and after that it never reconnects to MQTT. `marstack` now raises the web server's limits to 2048 bytes, so update to the latest `main` and rebuild. If you set `CONFIG_HTTPD_MAX_URI_LEN` or `CONFIG_HTTPD_MAX_REQ_HDR_LEN` yourself, a smaller value is raised to that and a larger one is kept.
+
+If it still happens:
+
+- Look for `Rejected a request that is too long for the web server` in the log. It means a request is longer still; please open an issue with that line.
+- The log shows every client joining and leaving the access point, with the reason it left (`AP client <mac> left (reason ...)`), which tells whether the battery drops off WiFi first.
+
+Discussed in [issue #66](https://github.com/tomquist/marsrelay/issues/66).
 
 ## The battery can't reach a power meter on my home network (e.g. EcoTracker)
 

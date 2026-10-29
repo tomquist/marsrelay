@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,7 +26,6 @@ extern "C" {
 #include "mqtt_client.h"
 }
 
-#include "esp_event.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -149,17 +147,6 @@ class MosquittoBroker : public Component {
   /// How often the diagnostic entities below are refreshed.
   void set_diagnostics_interval(uint32_t interval_ms) { this->diagnostics_interval_ms_ = interval_ms; }
 
-  /// Recover a battery that dropped off the access point, came back, and
-  /// stopped answering. After `timeout_ms` of relayed commands going
-  /// unanswered, the access point refuses that battery's connection for
-  /// `duration_ms`, so its WiFi module reports the failure and the battery
-  /// rebuilds everything. See check_stuck_devices_().
-  void set_stuck_recovery(uint32_t timeout_ms, uint32_t duration_ms) {
-    this->stuck_recovery_ = true;
-    this->stuck_timeout_ms_ = timeout_ms;
-    this->block_duration_ms_ = duration_ms;
-  }
-
 #ifdef USE_BINARY_SENSOR
   SUB_BINARY_SENSOR(running)
   SUB_BINARY_SENSOR(device_active)
@@ -181,46 +168,13 @@ class MosquittoBroker : public Component {
   static void on_broker_message_callback(char *client, char *topic, char *data, int len, int qos, int retain);
 
   void handle_message_(const char *client, char *topic, char *data, int len);
-  bool publish_local_(const std::string &topic, const std::string &payload);
+  void publish_local_(const std::string &topic, const std::string &payload);
   void resend_self_poll_();
   void ensure_publish_client_();
   void teardown_publish_client_();
   void publish_diagnostics_();
   std::string translate_external_to_device_(const std::string &topic) const;
   std::string translate_device_to_external_(const std::string &topic) const;
-
-  static void ap_event_handler_(void *arg, esp_event_base_t base, int32_t event_id, void *event_data);
-  void on_station_joined_(const uint8_t *mac, uint16_t aid);
-  void on_station_left_(const uint8_t *mac, uint16_t reason);
-  void note_device_message_(const std::string &topic);
-  void note_command_(const std::string &topic);
-  void check_stuck_devices_();
-
-  /// What the broker knows about one battery, keyed by its device-side id.
-  struct DeviceState {
-    uint32_t last_message{0};
-    /// A command was relayed after the last message and is still unanswered.
-    bool unanswered{false};
-    uint32_t unanswered_since{0};
-    /// Recovery has looked at this silence and looks again at `next_check`.
-    bool checked{false};
-    uint32_t next_check{0};
-    /// The clients whose drop silenced it, found on the first look and kept
-    /// for the later ones: their own later drops, and the ones recovery
-    /// itself causes, must not hide it.
-    std::vector<uint64_t> suspects;
-    /// Times recovery has refused this silence's clients so far.
-    uint8_t blocks{0};
-    /// Out of attempts; nothing more happens until it publishes again.
-    bool gave_up{false};
-  };
-  /// A client leaving the access point. Kept as a history rather than one
-  /// time per client: a stuck battery keeps leaving and rejoining, and its
-  /// later departures must not hide the one that silenced it.
-  struct Departure {
-    uint64_t mac;
-    uint32_t at;
-  };
 
   uint16_t port_{1883};
   uint16_t max_clients_{20};
@@ -257,20 +211,6 @@ class MosquittoBroker : public Component {
   std::atomic<uint32_t> publish_errors_{0};
   std::atomic<uint32_t> last_device_message_{0};
   std::atomic<bool> has_device_message_{false};
-
-  // Written from the broker task (device messages), the loop (commands) and the
-  // default event loop task (access point events); hence the locks.
-  Mutex devices_lock_;
-  std::map<std::string, DeviceState> devices_;
-  Mutex stations_lock_;
-  /// Clients on the access point right now (MAC -> association id, for a
-  /// deauth), and the latest departures.
-  std::map<uint64_t, uint16_t> connected_;
-  std::vector<Departure> departures_;
-  bool stuck_recovery_{false};
-  uint32_t stuck_timeout_ms_{300000};
-  uint32_t block_duration_ms_{120000};
-  uint32_t last_stuck_check_{0};
 
   // The battery's own poll, queued by the broker task for loop() to send back
   // once the battery is ready to read it. See handle_message_().

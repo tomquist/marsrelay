@@ -422,28 +422,6 @@ quiet while MQTT keeps working, and the other way round — that is the same
 split the [diagnostics](#diagnostics) notes describe — so a restart is worth
 gating on both, as above.
 
-### Recovering a battery stuck after a WiFi drop
-
-A B2500 (seen on HMJ-2 firmware V116) leaves the access point by itself every half hour or so and rejoins a moment later. Usually its MQTT connection survives. When it does not, the battery stops answering for good: it only rebuilds its connection when it can't reach its WiFi network at all, and a quick drop never gets that far. Restarting Marsrelay is too short, and so is simply disconnecting the battery (it just reconnects); resetting the battery brings it back, and so does stopping it from reconnecting for a couple of minutes.
-
-`recover_stuck_devices` does the last of these for you, for the one battery that is stuck:
-
-```yaml
-mosquitto_broker:
-  # ...existing options...
-  recover_stuck_devices:
-    timeout: 5min    # how long relayed commands may go unanswered
-    duration: 45s    # how long to refuse the battery's reconnection
-```
-
-Once commands for a battery have gone unanswered for `timeout`, Marsrelay looks for a WiFi client that dropped off the access point between the battery's last answer and the first command it missed and is back on it now: that is a battery that lost its connection and didn't notice. Marsrelay then refuses that one client's connection for `duration` — the access point turns its reconnection attempts away, as a wrong password would, so the battery's WiFi module reports the failure and the battery rebuilds everything. Only that battery is affected; other clients and the ESP32's own WiFi connection are untouched.
-
-The battery is off WiFi only while it is being refused, so keep `duration` as short as reliably works for your battery. It cannot usefully go below about 30 s — that is how long the battery's own firmware spends on one reconnection attempt before it starts over — which is why that is the minimum — only then does it lose the power-meter feed that drives zero feed-in. (While merely stuck it stays on WiFi, so that control keeps running; it is the refusal that interrupts it, which is the whole cost of recovery.) If a block was too short to take, Marsrelay doubles it on the next attempt, so erring low is safe: it tries three times at most, each one longer, then leaves the battery alone until it publishes again. Nothing happens when no client dropped off in that window, or when the one that did hasn't come back.
-
-It acts only for batteries that are being polled (by hm2mqtt, for example) and that have published through this Marsrelay since it last started; a battery that was already stuck when Marsrelay restarted needs one reset. Both settings are optional; an empty `recover_stuck_devices: {}` uses the defaults shown.
-
-The log shows every client joining and leaving the access point, with the reason it left, and a warning whenever a battery is refused.
-
 ## Troubleshooting
 
 The [diagnostic entities](#diagnostics) show which part stopped. See
