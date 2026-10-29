@@ -127,3 +127,32 @@ def test_min_power_is_optional(generate_main, tmp_path):
 )
 def test_invalid_power_limits_are_rejected(limits, tmp_path):
     assert _read(_with_power_limits(tmp_path, limits)) is None
+
+
+def _httpd_limits(generate_main, path):
+    generate_main(str(path))
+    options = CORE.data[esp32.KEY_ESP32][esp32.KEY_SDKCONFIG_OPTIONS]
+    def value(name):
+        raw = options[name]
+        return int(str(getattr(raw, "value", raw)).strip('"'))
+
+    return value("CONFIG_HTTPD_MAX_URI_LEN"), value("CONFIG_HTTPD_MAX_REQ_HDR_LEN")
+
+
+def test_httpd_limits_fit_the_b2500_report(generate_main):
+    # The battery's setB2500Report request line runs to ~1 KB; the IDF default
+    # of 512 answers it with 414 and the battery eventually drops its WiFi.
+    assert _httpd_limits(generate_main, FIXTURE) == (2048, 2048)
+
+
+def test_httpd_limits_keep_a_larger_user_value(generate_main, tmp_path):
+    path = _derive(
+        tmp_path,
+        (
+            "    type: esp-idf\n",
+            "    type: esp-idf\n    sdkconfig_options:\n"
+            '      CONFIG_HTTPD_MAX_URI_LEN: "4096"\n'
+            '      CONFIG_HTTPD_MAX_REQ_HDR_LEN: "1024"\n',
+        ),
+    )
+    assert _httpd_limits(generate_main, path) == (4096, 2048)

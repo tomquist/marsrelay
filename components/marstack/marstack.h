@@ -167,10 +167,7 @@ class Marstack : public Component, public AsyncWebHandler {
   SUB_SENSOR(request_age)
 #endif
 
-  void setup() override {
-    this->base_->init();
-    this->base_->add_handler(this);
-  }
+  void setup() override;
   void loop() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::WIFI - 1.0f; }

@@ -5,6 +5,7 @@
 #include "esp_tls.h"
 #include "mqtt_client.h"
 #include "esp_event.h"
+#include "esp_wifi.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -75,6 +76,64 @@ static const char server_key_pem[] =
     "Ekj7LjdQPex0u8iY/hda6sw=\n"
     "-----END PRIVATE KEY-----\n";
 
+namespace {
+
+std::string mac_str(const uint8_t *mac) {
+  char buf[18];
+  snprintf(buf, sizeof(buf), "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return buf;
+}
+
+// The 802.11 and ESP-IDF reasons a client can leave with that say something
+// about who ended the association, and why.
+const char *leave_reason_name(uint16_t reason) {
+  switch (reason) {
+    case WIFI_REASON_UNSPECIFIED:
+      return "unspecified";
+    case WIFI_REASON_AUTH_EXPIRE:
+      return "auth expired";
+    case WIFI_REASON_AUTH_LEAVE:
+      return "client left (deauth)";
+    case WIFI_REASON_DISASSOC_DUE_TO_INACTIVITY:
+      return "inactivity";
+    case WIFI_REASON_ASSOC_LEAVE:
+      return "client left (disassoc)";
+    case WIFI_REASON_CLASS2_FRAME_FROM_NONAUTH_STA:
+      return "frame from unauthenticated client";
+    case WIFI_REASON_CLASS3_FRAME_FROM_NONASSOC_STA:
+      return "frame from unassociated client";
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+      return "4-way handshake timeout";
+    case WIFI_REASON_GROUP_KEY_UPDATE_TIMEOUT:
+      return "group key update timeout";
+    case WIFI_REASON_BEACON_TIMEOUT:
+      return "beacon timeout";
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+      return "handshake timeout";
+    case WIFI_REASON_SA_QUERY_TIMEOUT:
+      return "SA query timeout";
+    default:
+      return "other";
+  }
+}
+
+// Runs on the default event loop task. The vendored wifi component only logs
+// the MAC, at VERBOSE, and drops the reason.
+void log_ap_event(void *arg, esp_event_base_t base, int32_t event_id, void *event_data) {
+  (void) arg;
+  (void) base;
+  if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+    const auto *event = static_cast<wifi_event_ap_staconnected_t *>(event_data);
+    ESP_LOGD(TAG, "AP client %s joined", mac_str(event->mac).c_str());
+  } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+    const auto *event = static_cast<wifi_event_ap_stadisconnected_t *>(event_data);
+    ESP_LOGD(TAG, "AP client %s left (reason %u: %s)", mac_str(event->mac).c_str(), event->reason,
+             leave_reason_name(event->reason));
+  }
+}
+
+}  // namespace
+
 void MosquittoBroker::setup() {
   if (this->tls_enabled_) {
     ESP_LOGI(TAG, "Starting Mosquitto broker with TLS on port %u", this->port_);
@@ -107,6 +166,14 @@ void MosquittoBroker::setup() {
   }
   
   this->broker_config_.handle_message_cb = &MosquittoBroker::on_broker_message_callback;
+
+  // Access point joins and leaves, with the reason a client left: a battery
+  // that drops off the access point shows up here first.
+  for (int32_t event : {WIFI_EVENT_AP_STACONNECTED, WIFI_EVENT_AP_STADISCONNECTED}) {
+    if (esp_event_handler_register(WIFI_EVENT, event, &log_ap_event, nullptr) != ESP_OK) {
+      ESP_LOGW(TAG, "Could not watch access point clients; join/leave logging is off");
+    }
+  }
 
   global_broker = this;
   this->broker_start_at_ = esphome::millis();

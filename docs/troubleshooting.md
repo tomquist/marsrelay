@@ -93,6 +93,19 @@ If the log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable t
 
 Long-running dropouts where MQTT and UDP stop together while WiFi stays up are still being investigated in [issue #10](https://github.com/tomquist/marsrelay/issues/10). The UDP proxy also retries its own start now, so a proxy whose sockets never came up no longer needs a reboot either.
 
+## A B2500 stops answering about 30 minutes after a reset
+
+Symptoms: after a battery reset everything works, then data stops for good 20–35 minutes later. `Commands relayed` keeps counting while `Battery messages` stands still, hm2mqtt reports no response, and restarting Marsrelay does not help. Only resetting the battery does, until the next time.
+
+Seen on the B2500 (HMJ, firmware V116). About once a minute the battery reports to the cloud with a request whose address is about 1 KB long, more than the ESP32's web server accepted by default (512 bytes). The rejected reports pile up, the battery eventually resets its own WiFi, and after that it never reconnects to MQTT. `marstack` now raises the web server's limits to 2048 bytes, so update to the latest `main` and rebuild. If you set `CONFIG_HTTPD_MAX_URI_LEN` or `CONFIG_HTTPD_MAX_REQ_HDR_LEN` yourself, a smaller value is raised to that and a larger one is kept.
+
+If it still happens:
+
+- Look for `Rejected a request that is too long for the web server` in the log. It means a request is longer still; please open an issue with that line.
+- The log shows every client joining and leaving the access point, with the reason it left (`AP client <mac> left (reason ...)`), which tells whether the battery drops off WiFi first.
+
+Discussed in [issue #66](https://github.com/tomquist/marsrelay/issues/66).
+
 ## The battery can't reach a power meter on my home network (e.g. EcoTracker)
 
 The Marsrelay access point is a separate network, so devices on your home LAN are not directly reachable from the battery. `udp_proxy` bridges exactly one thing: **UDP broadcasts** of the supported meter protocols (Shelly, CT00x). TCP-polled meters — such as the everHome EcoTracker — cannot be bridged this way ([issue #16](https://github.com/tomquist/marsrelay/issues/16)).

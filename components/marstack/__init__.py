@@ -209,7 +209,34 @@ def _request_tls_server():
     esp32.require_mbedtls_tls_extras()
 
 
+# The B2500 (HMJ firmware V116 at least) reports to
+# `GET /prod/api/v1/setB2500Report?v=<encrypted report>` about once a minute,
+# with a request line of up to ~1 KB. ESP-IDF's web server rejects anything
+# longer than 512 bytes with 414 before marstack sees it, and a battery whose
+# reports keep failing resets its own WiFi and loses its MQTT session for good.
+_HTTPD_MIN_LIMIT = 2048
+_HTTPD_LIMIT_OPTIONS = ("CONFIG_HTTPD_MAX_URI_LEN", "CONFIG_HTTPD_MAX_REQ_HDR_LEN")
+
+
+def _raise_httpd_limits():
+    """Raise the web server's request line and header limits to at least
+    _HTTPD_MIN_LIMIT, keeping a larger value set in `sdkconfig_options`."""
+    options = CORE.data[esp32.KEY_ESP32][esp32.KEY_SDKCONFIG_OPTIONS]
+    for name in _HTTPD_LIMIT_OPTIONS:
+        value = options.get(name, 0)
+        # A user's sdkconfig_options value arrives wrapped in RawSdkconfigValue.
+        value = getattr(value, "value", value)
+        try:
+            current = int(str(value).strip('"'))
+        except ValueError:
+            current = 0
+        if current < _HTTPD_MIN_LIMIT:
+            esp32.add_idf_sdkconfig_option(name, _HTTPD_MIN_LIMIT)
+
+
 async def to_code(config):
+    if CORE.is_esp32:
+        _raise_httpd_limits()
     parent = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
     var = cg.new_Pvariable(config[CONF_ID], parent)
     await cg.register_component(var, config)

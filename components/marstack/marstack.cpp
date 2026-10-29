@@ -742,6 +742,31 @@ void Marstack::handleRequest(AsyncWebServerRequest *request) {
   request->send(res.code, res.content_type != nullptr ? res.content_type : "text/plain", res.body.c_str());
 }
 
+#if defined(USE_ESP_IDF)
+// The web server answers a request line or header block over its limits with
+// 414 or 431 before any handler sees it, so the battery's request would vanish
+// from the log while the battery counts it as unanswered. Report it instead.
+static esp_err_t log_rejected_request(httpd_req_t *req, httpd_err_code_t error) {
+  ESP_LOGW(TAG, "Rejected a request that is too long for the web server (%s); raise %s",
+           error == HTTPD_414_URI_TOO_LONG ? "414 URI Too Long" : "431 Request Header Fields Too Large",
+           error == HTTPD_414_URI_TOO_LONG ? "CONFIG_HTTPD_MAX_URI_LEN" : "CONFIG_HTTPD_MAX_REQ_HDR_LEN");
+  httpd_resp_send_err(req, error, nullptr);
+  return ESP_FAIL;
+}
+#endif
+
+void Marstack::setup() {
+  this->base_->init();
+  this->base_->add_handler(this);
+#if defined(USE_ESP_IDF)
+  httpd_handle_t server = this->base_->get_server()->get_server();
+  if (server != nullptr) {
+    httpd_register_err_handler(server, HTTPD_414_URI_TOO_LONG, log_rejected_request);
+    httpd_register_err_handler(server, HTTPD_431_REQ_HDR_FIELDS_TOO_LARGE, log_rejected_request);
+  }
+#endif
+}
+
 void Marstack::dump_config() {
   ESP_LOGCONFIG(TAG, "Marstack cloud emulation:");
   ESP_LOGCONFIG(TAG, "  Raw cloud response framing: %s", YESNO(this->raw_responses_));
