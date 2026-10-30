@@ -235,8 +235,16 @@ def _raise_httpd_limits():
 
 
 async def to_code(config):
-    if CORE.is_esp32:
+    if CORE.is_esp32 and CORE.target_framework == "esp-idf":
         _raise_httpd_limits()
+        # ESPHome starts the web server task with a fixed stack sized for the
+        # default URI limit, and keeps a URI-sized buffer on it; wrap
+        # httpd_start() to give the task room for the larger one (see
+        # marstack.cpp). --undefined keeps the wrapper, which lives in libsrc.a,
+        # scanned before the IDF library that calls httpd_start().
+        cg.add_define("USE_MARSTACK_HTTPD_STACK")
+        cg.add_build_flag("-Wl,--wrap=httpd_start")
+        cg.add_build_flag("-Wl,--undefined=__wrap_httpd_start")
     parent = await cg.get_variable(config[CONF_WEB_SERVER_BASE_ID])
     var = cg.new_Pvariable(config[CONF_ID], parent)
     await cg.register_component(var, config)

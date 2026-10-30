@@ -156,3 +156,11 @@ def test_httpd_limits_keep_a_larger_user_value(generate_main, tmp_path):
         ),
     )
     assert _httpd_limits(generate_main, path) == (4096, 2048)
+
+
+def test_httpd_task_stack_is_raised(generate_main):
+    # ESPHome's web server keeps a URI-sized buffer on a fixed 4512-byte task
+    # stack; with the raised URI limit every web UI page load overflowed it.
+    generate_main(str(FIXTURE))
+    assert "-Wl,--wrap=httpd_start" in CORE.build_flags
+    assert "-Wl,--undefined=__wrap_httpd_start" in CORE.build_flags
