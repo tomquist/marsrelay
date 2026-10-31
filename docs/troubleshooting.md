@@ -39,9 +39,9 @@ mqtt:
 
 The outgoing direction needs no change: the `mosquitto_broker` `on_message` forwarding matches any topic containing `/device/`, regardless of prefix.
 
-**Cause 2: The device ID in the topic doesn't match what hm2mqtt publishes to.** Newer firmware switches the battery from its plain MAC to an [encrypted ID](../README.md#device-ids-mac-address-vs-encrypted-id) (e.g. Jupiter C+ with firmware v142), so this often shows up right after a firmware update:
+**Cause 2: The device ID in the topic doesn't match what hm2mqtt publishes to.** Newer firmware switches the battery from its plain MAC to an [encrypted ID](device-ids.md) (e.g. Jupiter C+ with firmware v142), so this often shows up right after a firmware update:
 
-- **Venus/Jupiter and other non-B2500 devices:** find the battery's encrypted ID (see [finding the encrypted ID](../README.md#finding-the-encrypted-id)) and either configure it as the `deviceId` in hm2mqtt or add an `id_mappings` entry in Marsrelay.
+- **Venus/Jupiter and other non-B2500 devices:** find the battery's encrypted ID (see [finding the encrypted ID](device-ids.md#finding-the-encrypted-id)) and either configure it as the `deviceId` in hm2mqtt or add an `id_mappings` entry in Marsrelay.
 - **B2500/Saturn devices (HMA/HMB/HMF/HMK/HMJ):** keep the **Bluetooth MAC** as `deviceId` in hm2mqtt and add an `id_mappings` entry mapping the battery's topic ID to that MAC (requires a current Marsrelay build). If you pasted the battery's topic ID into hm2mqtt instead, that's the problem: commands end up on a double-encrypted topic (~96-character IDs in the Marsrelay log).
 
 ## No /device/ topic ever appears
@@ -55,13 +55,14 @@ Work through this checklist:
 5. **Can Marsrelay reach your home MQTT broker?** Verify `mqtt_broker`, `mqtt_username` and `mqtt_password` in the substitutions, and check the ESPHome logs for MQTT connection errors.
 6. **Is the ESP32 stable?** Watch the logs via USB for a crash loop, and make sure the `psram` settings match your board.
 
-If you only need the device ID while you keep debugging, check the Marsrelay log for `Battery connected on 'marstek_energy/<deviceType>/App/<deviceId>/ctrl'` (on a Venus, logged as soon as the battery's MQTT connection is up), or get it from Hame Relay's startup logs instead of waiting (see [finding the encrypted ID](../README.md#finding-the-encrypted-id)).
+If you only need the device ID while you keep debugging, check the Marsrelay log for `Battery connected on 'marstek_energy/<deviceType>/App/<deviceId>/ctrl'` (on a Venus, logged as soon as the battery's MQTT connection is up), or get it from Hame Relay's startup logs instead of waiting (see [finding the encrypted ID](device-ids.md#finding-the-encrypted-id)).
 
 ## Repeating getDateInfoeu.php requests and UDP proxy log lines
 
 Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. A few related things that are easy to misread:
 
 - Messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) are **diagnostic logs** of the battery's HTTP requests — not battery data.
+- A B2500 calling `getRealtimeSoc` about once a minute is also expected: it does that after its controller restarted itself, until its next restart (see [B2500](b2500.md#charge-level-after-a-controller-restart)).
 - `No answer for GET /...; replying 404` means the battery called a cloud endpoint Marsrelay does not emulate yet. Please open an issue with that line and the `query params` line logged with it, replacing the values (such as `devid`, which can be your battery's MAC address) with placeholders.
 - The battery publishes under `.../device/...` on its own only now and then. Steady data needs [hm2mqtt](https://github.com/tomquist/hm2mqtt), which polls it (`cd=1`). Until the battery's first message, seeing nothing but `request` messages is expected.
 
@@ -69,7 +70,7 @@ Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.ph
 
 Symptoms: the battery vanishes for two to five seconds on a fixed rhythm — Modbus TCP times out, Home Assistant shows it unavailable, even ping stops answering — and then it is back until the next time.
 
-That is the battery's own firmware, not your network. On Venus control firmware **v150** the battery buffers telemetry records and hardware-resets its network chip whenever the buffer is not being drained by uploads to the Marstek cloud: every 900 s on WiFi, which is how a battery reaches Marsrelay. Marsrelay answers those uploads so the buffer stays empty; see [Venus: the network dropouts every 15 minutes](../README.md#venus-the-network-dropouts-every-15-minutes).
+That is the battery's own firmware, not your network. On Venus control firmware **v150** the battery buffers telemetry records and hardware-resets its network chip whenever the buffer is not being drained by uploads to the Marstek cloud: every 900 s on WiFi, which is how a battery reaches Marsrelay. Marsrelay answers those uploads so the buffer stays empty; see [the network dropouts every 15 minutes](venus.md#the-network-dropouts-every-15-minutes).
 
 If it still happens:
 
@@ -84,10 +85,10 @@ Note that this does not remove *every* interruption. Since v150 each upload runs
 
 If the log shows `***ERROR*** A stack overflow in task mosq_broker` or `Unable to accept new connection, system socket count has been exceeded`, first update to the latest `main` — earlier versions of the embedded broker had crash bugs that have been fixed. Beyond that:
 
-- The [diagnostic entities](../README.md#diagnostics) show which part stopped: `Local broker running` and `Broker restarts` for the broker, `Battery MQTT data` and `Battery HTTP requests` for the battery's two connections.
+- The [diagnostic entities](diagnostics.md) show which part stopped: `Local broker running` and `Broker restarts` for the broker, `Battery MQTT data` and `Battery HTTP requests` for the battery's two connections.
 - Some users report better long-term stability with `CONFIG_LWIP_MAX_SOCKETS: "32"` and `CONFIG_LWIP_SOCKET_OFFSET: "16"` in the `sdkconfig_options`.
 - Since a build from `main`, a broker that exits on its own is started again automatically (the log says `Broker task exited on its own; restarting it in ... ms`). Before that it stayed down until the next reboot, which is one way the symptom below could be reached. Seeing that line repeatedly means the broker keeps dying — the settings in this list still apply.
-- A power cycle of the ESP32 restores communication as a stopgap. The [liveness automations](../README.md#acting-on-silence) can do that, or send the battery a command, without Home Assistant being involved.
+- A power cycle of the ESP32 restores communication as a stopgap. The [liveness automations](diagnostics.md#acting-on-silence) can do that, or send the battery a command, without Home Assistant being involved.
 - The log line `TLS client: certificate verification relaxed (CN check disabled, ...)` is expected with `tls_skip_verification: true` and is not an error.
 - If crashes persist, double-check the `psram` settings match your board, and consider a standard ESP32-S3 devkit board.
 
@@ -110,13 +111,13 @@ Discussed in [issue #66](https://github.com/tomquist/marsrelay/issues/66).
 
 The Marsrelay access point is a separate network, so devices on your home LAN are not directly reachable from the battery. `udp_proxy` bridges exactly one thing: **UDP broadcasts** of the supported meter protocols (Shelly, CT00x). TCP-polled meters — such as the everHome EcoTracker — cannot be bridged this way ([issue #16](https://github.com/tomquist/marsrelay/issues/16)).
 
-Workaround: bring the meter reading into ESPHome as a sensor (e.g. imported from Home Assistant) and serve it to the battery with the [Shelly UDP emulator](../README.md#optional-shelly-udp-emulator) directly on the ESP32.
+Workaround: bring the meter reading into ESPHome as a sensor (e.g. imported from Home Assistant) and serve it to the battery with the [Shelly UDP emulator](shelly-emulator.md) directly on the ESP32.
 
-A Marstek CT that is itself on a Marsrelay access point needs `meter_network: access_point` on that Marsrelay's `udp_proxy`; see [A Marstek CT on its own Marsrelay](../README.md#optional-a-marstek-ct-on-its-own-marsrelay).
+A Marstek CT that is itself on a Marsrelay access point needs `meter_network: access_point` on that Marsrelay's `udp_proxy`; see [A Marstek CT on its own Marsrelay](marstek-ct.md).
 
 ## hm2mqtt shows all entities as unavailable
 
-hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the configured `deviceId` against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices it must be the Bluetooth MAC plus an `id_mappings` entry mapping the battery's topic ID to that MAC; for all other devices it must match the topic ID exactly (or be connected via `id_mappings`). See [Device IDs](../README.md#device-ids-mac-address-vs-encrypted-id).
+hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the configured `deviceId` against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices it must be the Bluetooth MAC plus an `id_mappings` entry mapping the battery's topic ID to that MAC; for all other devices it must match the topic ID exactly (or be connected via `id_mappings`). See [Device IDs](device-ids.md).
 
 ## Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
 

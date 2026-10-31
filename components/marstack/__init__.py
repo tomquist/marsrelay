@@ -115,7 +115,7 @@ def _validate_power_limits(config):
 
 # What a B2500 is told when it asks for its output power limits. Leaving out
 # min_power lets the battery pick its own (80 W, or 40 W on some variants).
-# A battery that already has settings stored does not ask; see the README.
+# A battery that already has settings stored does not ask; see docs/b2500.md.
 POWER_LIMITS_SCHEMA = cv.All(
     cv.Schema(
         {

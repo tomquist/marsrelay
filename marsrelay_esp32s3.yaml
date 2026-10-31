@@ -73,7 +73,7 @@ capture_dns:
 # UDP proxy bridges broadcasts between AP and STA networks for power meter discovery
 # Add multiple entries if you need to support different firmware versions
 # For a Marstek CT on this Marsrelay's own access point, add
-# `meter_network: access_point` (see the README)
+# `meter_network: access_point` (see docs/marstek-ct.md)
 udp_proxy:
   - id: meter_proxy
     port: ${udp_proxy_port}
@@ -157,7 +157,7 @@ marstack:
 
 # Diagnostics. Everything below is entity_category diagnostic, so Home Assistant
 # files it under the device's diagnostics rather than on a dashboard. Every
-# entity is optional; see the README for the full list.
+# entity is optional; see docs/diagnostics.md for the full list.
 binary_sensor:
   # Device availability as the home broker sees it (via MQTT last will).
   - platform: status
