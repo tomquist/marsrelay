@@ -486,6 +486,68 @@ void Marstack::dispatch(const Request &req, Response &res) {
     return;
   }
 
+  if (req.method == "GET" &&
+      (req.url == "/prod/api/v1/setVenusDReporting" || req.url == "/ems/api/v2/setAcCoupleReporting")) {
+    // Telemetry uploads: Venus E v3, D and A up to firmware 149, and Venus E
+    // gen 1/2 on every version. The firmware drops a record from its buffer
+    // only once the number after "de": is non-zero; anything else, a 404
+    // included, keeps it and re-sends it about once a minute. The real cloud
+    // answers any non-empty `v` with this body.
+    res.code = 200;
+    res.content_type = "application/json";
+    res.body = "{\"code\":1,\"show\":0,\"msg\":\"ok\",\"data\":{\"de\":1}}";
+    return;
+  }
+
+  if (req.method == "GET" && req.url == "/prod/api/v1/setCtReporting") {
+    // The CT002 (from firmware 122/124) and CT003 report here every five
+    // minutes. They check for a 200 and ignore the body, but a CT002 that does
+    // not get one repeats the request back to back, with no pause, on the same
+    // channel it answers the batteries' meter polls on. The real cloud's body.
+    res.code = 200;
+    res.content_type = "application/json";
+    res.body = "{\"code\":1,\"msg\":\"success\"}";
+    return;
+  }
+
+  if (req.method == "GET" && req.url == "/external-services/api/v1/schedulings/policies") {
+    // A Venus in AI (dynamic tariff) mode fetches its charge schedule here,
+    // over TLS. This is what the real cloud sends a device it has no schedule
+    // for: the firmware reads it as a valid empty schedule, and t=0 as "ask
+    // again in an hour". Without a reply it asks again every few seconds.
+    res.code = 200;
+    res.content_type = "text/html; charset=utf-8";
+    res.body = "t=0;c=;l=0;d=";
+    res.content_length = true;
+    return;
+  }
+
+  if (req.method == "GET" && req.url == "/external-services/api/v1/devices/backup-configs") {
+    // A Venus that appears to have lost its settings asks for its cloud backup
+    // of them, WiFi credentials included. There is no backup to give, so this
+    // is the real cloud's answer for a device without one: an empty 200. The
+    // firmware keeps asking either way, but must never be handed made-up
+    // settings.
+    res.code = 200;
+    res.content_type = "text/html; charset=utf-8";
+    res.content_length = true;
+    return;
+  }
+
+  if (req.method == "GET" && req.url == "/ems/api/v1/getDevicesApply" && this->power_version_ != 0) {
+    // Sent after the app's "active upgrade" command. A Venus E gen 1/2 stores
+    // the power as its power class for good, and with it its maximum discharge
+    // power, so it is answered only with what the config names; unset, the
+    // request stays unanswered (the battery repeats it until it reboots). The
+    // other Venus models ignore the reply.
+    res.code = 200;
+    res.content_type = "application/json";
+    res.body = "{\"code\":1,\"show\":0,\"msg\":\"success\",\"data\":{\"power\":";
+    res.body.append(std::to_string(this->power_version_));
+    res.body.append("}}");
+    return;
+  }
+
   if (req.method == "GET" && is_time_path(req.url)) {
     res.code = 200;
     // The real endpoint labels the clock reply text/html, not text/plain.
@@ -589,6 +651,18 @@ std::string Marstack::build_raw_response(const Response &res) const {
   // different order — was rejected by the battery, which then retried four
   // times and gave up without setting its clock. Do not "simplify" this back
   // into an ordinary response.
+  if (res.content_length) {
+    // The scheduling and backup backend, as captured: a plain length, no
+    // gateway headers.
+    out.append("Content-Type: ");
+    out.append(res.content_type != nullptr ? res.content_type : "text/plain");
+    out.append("\r\nContent-Length: ");
+    out.append(std::to_string(res.body.size()));
+    out.append("\r\nConnection: keep-alive\r\nvary: Origin\r\nAccess-Control-Allow-Credentials: true\r\n\r\n");
+    out.append(res.body);
+    return out;
+  }
+
   out.append("Content-Type: ");
   out.append(res.content_type != nullptr ? res.content_type : "text/plain");
   out.append("\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\nTrace-Id: ");
@@ -611,6 +685,11 @@ std::string Marstack::build_raw_response(const Response &res) const {
 
   out.append("\r\n");
 
+  if (res.body.empty()) {
+    // A zero-length chunk is the terminator itself.
+    out.append("0\r\n\r\n");
+    return out;
+  }
   char chunk_header[16];
   snprintf(chunk_header, sizeof(chunk_header), "%x\r\n", static_cast<unsigned>(res.body.size()));
   out.append(chunk_header);
@@ -628,9 +707,25 @@ bool Marstack::canHandle(AsyncWebServerRequest *request) const {
   }
   const std::string url = request_url(request);
   if (request->method() == HTTP_GET) {
-    return url == "/prod/api/v1/setB2500Report" || url == "/prod/api/v1/setSmallReporting" || is_time_path(url) ||
-           url == "/app/Solar/puterrinfo.php" || url == "/ems/api/v1/getRealtimeSoc" ||
-           url == "/ems/api/v1/getDeviceFire";
+    static const char *const GET_PATHS[] = {
+        "/prod/api/v1/setB2500Report",
+        "/prod/api/v1/setSmallReporting",
+        "/prod/api/v1/setVenusDReporting",
+        "/prod/api/v1/setCtReporting",
+        "/ems/api/v2/setAcCoupleReporting",
+        "/app/Solar/puterrinfo.php",
+        "/ems/api/v1/getRealtimeSoc",
+        "/ems/api/v1/getDeviceFire",
+        "/ems/api/v1/getDevicesApply",
+        "/external-services/api/v1/schedulings/policies",
+        "/external-services/api/v1/devices/backup-configs",
+    };
+    for (const char *path : GET_PATHS) {
+      if (url == path) {
+        return true;
+      }
+    }
+    return is_time_path(url);
   }
   if (request->method() == HTTP_POST) {
     return url == "/app/Solar/puterrinfo.php" || is_data_upload_path(url);
@@ -790,6 +885,9 @@ void Marstack::dump_config() {
   ESP_LOGCONFIG(TAG, "  B2500 max output power: %u W", this->max_power_);
   if (this->min_power_ >= 0) {
     ESP_LOGCONFIG(TAG, "  B2500 min output power: %d W", this->min_power_);
+  }
+  if (this->power_version_ != 0) {
+    ESP_LOGCONFIG(TAG, "  Venus power version: %u W", this->power_version_);
   }
 }
 

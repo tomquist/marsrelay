@@ -44,6 +44,9 @@ struct Response {
   // The telemetry upload host sits behind a Kong API gateway and sends seven
   // headers the clock host does not. Reproduced for that endpoint only.
   bool kong_headers{false};
+  // The scheduling and backup endpoints are served by a different backend,
+  // which sends a Content-Length instead of chunking the body.
+  bool content_length{false};
 };
 
 /// Fires when the battery stops calling the cloud endpoints for longer than
@@ -132,6 +135,9 @@ class Marstack : public Component, public AsyncWebHandler {
     this->max_power_ = max_power;
     this->min_power_ = min_power;
   }
+  /// Power class (800 or 2500 W) handed to a Venus E gen 1/2 that asks after
+  /// the app's "active upgrade" command; 0 leaves the request unanswered.
+  void set_power_version(uint16_t watts) { this->power_version_ = watts; }
 
   /// Fire the request triggers and fill in what the cloud would answer.
   void dispatch(const Request &req, Response &res);
@@ -186,6 +192,7 @@ class Marstack : public Component, public AsyncWebHandler {
   std::string time_suffix_{"04_0_0_0"};
   uint16_t max_power_{800};
   int min_power_{-1};
+  uint16_t power_version_{0};
   bool raw_responses_{true};
   bool accept_all_{false};
   // The TLS listener hands its parsed requests to the loop task through a

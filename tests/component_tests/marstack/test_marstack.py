@@ -129,6 +129,32 @@ def test_invalid_power_limits_are_rejected(limits, tmp_path):
     assert _read(_with_power_limits(tmp_path, limits)) is None
 
 
+def _with_power_version(tmp_path: Path, value: str) -> Path:
+    return _derive(
+        tmp_path,
+        ('  time_suffix: "04_0_0_0"\n', f'  time_suffix: "04_0_0_0"\n  power_version: {value}\n'),
+    )
+
+
+def test_power_version_is_unanswered_by_default(generate_main):
+    # A Venus E gen 1/2 stores the answer for good, so nothing is assumed.
+    main_cpp = generate_main(str(FIXTURE))
+    assert "set_power_version(" not in main_cpp
+
+
+@pytest.mark.parametrize("watts", [800, 2500])
+def test_power_version_reaches_the_component(watts, generate_main, tmp_path):
+    main_cpp = generate_main(str(_with_power_version(tmp_path, str(watts))))
+    assert f"marstack_http->set_power_version({watts})" in main_cpp
+
+
+@pytest.mark.parametrize("value", ["1000", "0", "auto"])
+def test_power_version_other_than_the_two_classes_is_rejected(value, tmp_path):
+    # Any other number makes the battery reject the reply and ask again every
+    # few seconds.
+    assert _read(_with_power_version(tmp_path, value)) is None
+
+
 def _httpd_limits(generate_main, path):
     generate_main(str(path))
     options = CORE.data[esp32.KEY_ESP32][esp32.KEY_SDKCONFIG_OPTIONS]
