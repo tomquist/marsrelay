@@ -33,6 +33,7 @@ CONF_MAX_CONNECTIONS = "max_connections"
 CONF_POWER_LIMITS = "power_limits"
 CONF_MAX_POWER = "max_power"
 CONF_MIN_POWER = "min_power"
+CONF_POWER_VERSION = "power_version"
 
 # B2500 firmware caps its maximum output power here whatever it is told.
 _B2500_MAX_OUTPUT_W = 800
@@ -139,6 +140,11 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
         cv.Optional(CONF_HTTPS): HTTPS_SCHEMA,
         cv.Optional(CONF_POWER_LIMITS): POWER_LIMITS_SCHEMA,
+        # What a Venus E gen 1/2 is told its power class is when the app sends
+        # "active upgrade". It stores this for good and resets its maximum
+        # discharge power to it, so there is no default: unset, the request
+        # goes unanswered.
+        cv.Optional(CONF_POWER_VERSION): cv.one_of(800, 2500, int=True),
         cv.Optional(CONF_ON_REQUEST): automation.validate_automation(
             {
                 cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(MarstackRequestTrigger),
@@ -257,6 +263,8 @@ async def to_code(config):
                 limits[CONF_MAX_POWER], limits.get(CONF_MIN_POWER, -1)
             )
         )
+    if (power_version := config.get(CONF_POWER_VERSION)) is not None:
+        cg.add(var.set_power_version(power_version))
     cg.add(
         var.set_diagnostics_interval(
             config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds

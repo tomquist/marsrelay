@@ -228,6 +228,19 @@ A battery that already has settings stored does not ask, so for one that is up a
 
 The battery answers `cd=24` on its `.../device/...` topic with `id=...,s=...,c=...,i=...,p=...,pmin=...,adjust_time=...`. For `cd=23`, send back the `id`, `s`, `c` and `i` it reported and change only `p`, plus `pmin=<W>` at the end if you want to set the minimum too. All five fields must be there, in this order, or the battery does not store the command. The battery stores the values and applies them straight away. Like the table above, this comes from reading the firmware, not from testing on a battery.
 
+## Venus E gen 1/2: power class
+
+When the Marstek app sends a Venus E gen 1/2 its "active upgrade" command, the battery asks the cloud (`getDevicesApply`) whether it is an 800 W or a 2500 W unit. It stores the answer for good and resets its maximum discharge power to it; as an 800 W unit it also refuses discharge settings above 800 W. The real cloud tells an unknown device 800.
+
+Marsrelay does not guess this, so by default the request goes unanswered and the battery keeps its current class (it repeats the request until its next restart). To answer it, set the class on `marstack:`:
+
+```yaml
+marstack:
+  power_version: 2500   # 800 or 2500
+```
+
+Other Venus models send the same request but ignore the answer.
+
 ## Optional: A Marstek CT on its own Marsrelay
 
 A Marstek CT (CT002, CT003) can join a Marsrelay access point to stay off the cloud too, even when it is too far from the battery to share one. Each device then gets its own Marsrelay, both connected to the same home WiFi:
