@@ -771,6 +771,10 @@ void Marstack::dump_config() {
   ESP_LOGCONFIG(TAG, "Marstack cloud emulation:");
   ESP_LOGCONFIG(TAG, "  Raw cloud response framing: %s", YESNO(this->raw_responses_));
   ESP_LOGCONFIG(TAG, "  Clock reply suffix: %s", this->time_suffix_.c_str());
+#if defined(USE_ESP_IDF)
+  ESP_LOGCONFIG(TAG, "  Web server limits: URI %u bytes, headers %u bytes", (unsigned) CONFIG_HTTPD_MAX_URI_LEN,
+                (unsigned) CONFIG_HTTPD_MAX_REQ_HDR_LEN);
+#endif
   ESP_LOGCONFIG(TAG, "  B2500 max output power: %u W", this->max_power_);
   if (this->min_power_ >= 0) {
     ESP_LOGCONFIG(TAG, "  B2500 min output power: %d W", this->min_power_);
@@ -779,4 +783,31 @@ void Marstack::dump_config() {
 
 }  // namespace marstack
 }  // namespace esphome
+
+#if defined(USE_ESP_IDF) && defined(USE_MARSTACK_HTTPD_STACK)
+// ESPHome's web server keeps a CONFIG_HTTPD_MAX_URI_LEN + 1 byte URL buffer on
+// the server task's stack in several handlers (marstack's request_url() among
+// them), and starts that task with a fixed 4512-byte stack sized for the
+// default 512. marstack raises the limit for the B2500's reports (see
+// __init__.py), which overflowed that stack on every web UI page load, so give
+// the task room for two such buffers plus some margin. httpd_start() copies
+// the config, so the adjusted copy can live on our stack.
+static constexpr size_t HTTPD_DEFAULT_URI_LEN = 512;
+static constexpr size_t HTTPD_MIN_STACK =
+    4512 + 2 * (CONFIG_HTTPD_MAX_URI_LEN > HTTPD_DEFAULT_URI_LEN ? CONFIG_HTTPD_MAX_URI_LEN - HTTPD_DEFAULT_URI_LEN : 0) +
+    1536;
+
+// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
+extern "C" esp_err_t __real_httpd_start(httpd_handle_t *handle, const httpd_config_t *config);
+extern "C" esp_err_t __wrap_httpd_start(httpd_handle_t *handle, const httpd_config_t *config) {
+  if (config == nullptr || config->stack_size >= HTTPD_MIN_STACK) {
+    return __real_httpd_start(handle, config);
+  }
+  httpd_config_t adjusted = *config;
+  adjusted.stack_size = HTTPD_MIN_STACK;
+  return __real_httpd_start(handle, &adjusted);
+}
+// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
+#endif
+
 #endif
