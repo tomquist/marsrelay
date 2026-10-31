@@ -5,7 +5,12 @@
 #include "esp_tls.h"
 #include "mqtt_client.h"
 #include "esp_event.h"
+// ESP-IDF's esp_wifi is only in the build when the wifi component is
+// configured, so an Ethernet-only build (e.g. OPENETH under QEMU) has no
+// esp_wifi.h and simply skips the access point join/leave logging.
+#ifdef USE_WIFI
 #include "esp_wifi.h"
+#endif
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -76,6 +81,7 @@ static const char server_key_pem[] =
     "Ekj7LjdQPex0u8iY/hda6sw=\n"
     "-----END PRIVATE KEY-----\n";
 
+#ifdef USE_WIFI
 namespace {
 
 std::string mac_str(const uint8_t *mac) {
@@ -133,6 +139,7 @@ void log_ap_event(void *arg, esp_event_base_t base, int32_t event_id, void *even
 }
 
 }  // namespace
+#endif  // USE_WIFI
 
 void MosquittoBroker::setup() {
   if (this->tls_enabled_) {
@@ -167,6 +174,7 @@ void MosquittoBroker::setup() {
   
   this->broker_config_.handle_message_cb = &MosquittoBroker::on_broker_message_callback;
 
+#ifdef USE_WIFI
   // Access point joins and leaves, with the reason a client left: a battery
   // that drops off the access point shows up here first.
   for (int32_t event : {WIFI_EVENT_AP_STACONNECTED, WIFI_EVENT_AP_STADISCONNECTED}) {
@@ -174,6 +182,7 @@ void MosquittoBroker::setup() {
       ESP_LOGW(TAG, "Could not watch access point clients; join/leave logging is off");
     }
   }
+#endif
 
   global_broker = this;
   this->broker_start_at_ = esphome::millis();
