@@ -1,0 +1,29 @@
+# The broker on an Ethernet-only build, with no wifi component (and so no
+# ESP-IDF esp_wifi): the shape of a QEMU test build.
+esphome:
+  name: test-mqtt-ethernet
+
+esp32:
+  variant: esp32
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      # The embedded broker's esp_tls port references struct sockaddr_in6, so
+      # it does not compile with lwIP's IPv6 support off.
+      CONFIG_LWIP_IPV6: y
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+ethernet:
+  type: OPENETH
+
+logger:
+
+# The broker drives ESP-IDF's MQTT client, which the mqtt component brings in.
+mqtt:
+  broker: 127.0.0.1
+
+mosquitto_broker:
