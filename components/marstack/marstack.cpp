@@ -475,6 +475,17 @@ void Marstack::dispatch(const Request &req, Response &res) {
     return;
   }
 
+  if (req.method == "GET" && req.url == "/prod/api/v1/setSmallReporting") {
+    // The Jupiter's counterpart to setB2500Report. The real cloud answers any
+    // non-empty `v` with exactly this body, an undecodable one included, so it
+    // carries nothing device-specific; only a request without `v`, which no
+    // device sends, gets `{}` instead.
+    res.code = 200;
+    res.content_type = "application/json";
+    res.body = "{\"code\":1,\"msg\":\"ok\",\"data\":{\"de\":1}}";
+    return;
+  }
+
   if (req.method == "GET" && is_time_path(req.url)) {
     res.code = 200;
     // The real endpoint labels the clock reply text/html, not text/plain.
@@ -617,8 +628,9 @@ bool Marstack::canHandle(AsyncWebServerRequest *request) const {
   }
   const std::string url = request_url(request);
   if (request->method() == HTTP_GET) {
-    return url == "/prod/api/v1/setB2500Report" || is_time_path(url) || url == "/app/Solar/puterrinfo.php" ||
-           url == "/ems/api/v1/getRealtimeSoc" || url == "/ems/api/v1/getDeviceFire";
+    return url == "/prod/api/v1/setB2500Report" || url == "/prod/api/v1/setSmallReporting" || is_time_path(url) ||
+           url == "/app/Solar/puterrinfo.php" || url == "/ems/api/v1/getRealtimeSoc" ||
+           url == "/ems/api/v1/getDeviceFire";
   }
   if (request->method() == HTTP_POST) {
     return url == "/app/Solar/puterrinfo.php" || is_data_upload_path(url);
