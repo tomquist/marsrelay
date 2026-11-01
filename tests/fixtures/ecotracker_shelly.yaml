@@ -1,0 +1,65 @@
+# The EcoTracker example from docs/ecotracker.md: poll the meter over the home
+# WiFi and serve the reading to the battery with the Shelly emulator.
+esphome:
+  name: test-ecotracker-shelly
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+wifi:
+  ssid: "test"
+  password: "testpass"
+  ap:
+    ssid: "fallback"
+    password: "fallbackpass"
+
+logger:
+
+substitutions:
+  ecotracker_host: 192.168.1.50
+  udp_proxy_port: "1010"
+
+http_request:
+  timeout: 1s
+
+sensor:
+  - platform: template
+    id: grid_power_w
+    name: Grid Power
+    unit_of_measurement: W
+    device_class: power
+    state_class: measurement
+
+interval:
+  - interval: 1s
+    then:
+      - http_request.get:
+          url: http://${ecotracker_host}/v1/json
+          capture_response: true
+          max_response_buffer_size: 1024
+          on_response:
+            then:
+              - lambda: |-
+                  float power = NAN;
+                  if (response->status_code == 200) {
+                    json::parse_json(body, [&](JsonObject root) -> bool {
+                      if (!root["power"].is<float>()) return false;
+                      power = root["power"].as<float>();
+                      return true;
+                    });
+                  }
+                  id(grid_power_w).publish_state(power);
+          on_error:
+            - lambda: id(grid_power_w).publish_state(NAN);
+
+shelly_emulator:
+  port: ${udp_proxy_port}
+  power_sensors:
+    - grid_power_w

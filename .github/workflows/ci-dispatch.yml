@@ -76,6 +76,19 @@ jobs:
           version: ${{ inputs.esphome_version }}
           yaml-file: tests/fixtures/shelly_emulator.yaml
 
+  # The EcoTracker example in docs/ecotracker.md carries a lambda, which only
+  # a build compiles.
+  build-ecotracker-example:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build EcoTracker example config (E2E)
+        uses: esphome/build-action@v6
+        with:
+          version: ${{ inputs.esphome_version }}
+          yaml-file: tests/fixtures/ecotracker_shelly.yaml
+
   # The broker without the wifi component, which also leaves ESP-IDF's
   # esp_wifi out of the build (the shape of a QEMU test build).
   build-broker-ethernet:
