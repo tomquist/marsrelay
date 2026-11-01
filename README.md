@@ -1,8 +1,8 @@
 # Marsrelay
 
-Marsrelay runs your Marstek Energy Storage system **completely offline**: a small ESP32-S3 device emulates the Marstek cloud locally, so the battery works without internet while all data and controls flow into your home automation via MQTT.
+Marsrelay runs your Marstek Energy Storage system **without the Marstek cloud**: a small ESP32-S3 device emulates the cloud locally, so the battery never talks to Marstek while all data and controls flow into your home automation via MQTT.
 
-- **No cloud, no internet** — all data stays in your home network
+- **No cloud** — all data stays in your home network. Without internet, Marsrelay needs a local time source to keep the batteries' schedules right ([details](docs/troubleshooting.md#can-marsrelay-run-without-internet))
 - **No device hacking** — you only point the battery's WiFi at Marsrelay's access point
 - **Home Assistant integration** via [hm2mqtt](https://github.com/tomquist/hm2mqtt)
 
@@ -124,6 +124,7 @@ The [diagnostic entities](docs/diagnostics.md) show which part stopped. See
 - [A B2500 stops answering about 30 minutes after a reset](docs/troubleshooting.md#a-b2500-stops-answering-about-30-minutes-after-a-reset)
 - [The battery can't reach a power meter on my home network](docs/troubleshooting.md#the-battery-cant-reach-a-power-meter-on-my-home-network-eg-ecotracker)
 - [hm2mqtt shows all entities as unavailable](docs/troubleshooting.md#hm2mqtt-shows-all-entities-as-unavailable)
+- [Can Marsrelay run without internet?](docs/troubleshooting.md#can-marsrelay-run-without-internet)
 - [Can I run Marsrelay on a Raspberry Pi?](docs/troubleshooting.md#can-i-run-marsrelay-on-a-raspberry-pi-instead-of-an-esp32)
 
 ## License

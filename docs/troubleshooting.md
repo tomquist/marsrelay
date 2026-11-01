@@ -59,12 +59,16 @@ If you only need the device ID while you keep debugging, check the Marsrelay log
 
 ## Repeating getDateInfoeu.php requests and UDP proxy log lines
 
-Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. A few related things that are easy to misread:
+Not a problem — that's healthy operation, as long as they come every few minutes. A request every few seconds together with `Clock not set yet` in the log means Marsrelay's own clock has not synced; see [below](#the-log-says-clock-not-set-yet). `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. A few related things that are easy to misread:
 
 - Messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) are **diagnostic logs** of the battery's HTTP requests — not battery data.
 - A B2500 calling `getRealtimeSoc` about once a minute is also expected: it does that after its controller restarted itself, until its next restart (see [B2500](b2500.md#charge-level-after-a-controller-restart)).
 - `No answer for GET /...; replying 404` means the battery called a cloud endpoint Marsrelay does not emulate yet. Please open an issue with that line and the `query params` line logged with it, replacing the values (such as `devid`, which can be your battery's MAC address) with placeholders.
 - The battery publishes under `.../device/...` on its own only now and then. Steady data needs [hm2mqtt](https://github.com/tomquist/hm2mqtt), which polls it (`cd=1`). Until the battery's first message, seeing nothing but `request` messages is expected.
+
+## The log says "Clock not set yet"
+
+Marsrelay's own clock has not synced, so it cannot give the batteries the time: they keep their own clock and ask again every few seconds, which shows up as a stream of `getDateInfoeu.php` requests. Right after a boot this clears up within a minute. If it persists, Marsrelay cannot reach an NTP server, typically on a home network without internet; see [Time](cloud-emulation.md#time) for using a local time source.
 
 ## A Venus keeps dropping off the network
 
@@ -118,6 +122,31 @@ A Marstek CT that is itself on a Marsrelay access point needs `meter_network: ac
 ## hm2mqtt shows all entities as unavailable
 
 hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the configured `deviceId` against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices it must be the Bluetooth MAC plus an `id_mappings` entry mapping the battery's topic ID to that MAC; for all other devices it must match the topic ID exactly (or be connected via `id_mappings`). See [Device IDs](device-ids.md).
+
+## Can Marsrelay run without internet?
+
+Only partly. Marsrelay replaces the Marstek cloud, so the battery never needs to reach Marstek, and its data and controls stay on your network. But the batteries' clocks come from Marsrelay, and Marsrelay's own clock comes from internet time servers. Take the internet away and nobody tells the batteries the time.
+
+**What breaks without a time source:**
+- Anything a battery does by time of day runs at the wrong time or not at all: time-period schedules, charge and discharge windows, and the rollover of its daily and monthly energy counters.
+- A B2500 also holds back its other cloud requests until it gets a valid date.
+- Marsrelay logs `Clock not set yet`, and the batteries keep asking for the time every few seconds.
+
+**What fixes it is a time source on your own network**; see [Time](cloud-emulation.md#time):
+- **An RTC module on the ESP32** is the only option that needs no other system. Set it once while internet is available, and it keeps the time through power cuts.
+- **A local NTP server**, such as many routers provide.
+- **Home Assistant.**
+
+A Marsrelay that is the only thing on a network with no internet needs the RTC module.
+
+**What else to know:**
+- **Building and flashing** needs internet: ESPHome downloads Marsrelay's components and its toolchain. Once flashed, the device itself does not phone home.
+- **Getting the data out** needs an MQTT broker on your network, and hm2mqtt to turn it into Home Assistant entities. Without them the battery still runs, but nothing reads its data.
+- **Some things only the real cloud can do**, so they stay unavailable:
+  - firmware updates the battery downloads over WiFi (connect it to your normal WiFi for those);
+  - remote access through the Marstek app (the app keeps working over Bluetooth);
+  - a Venus's AI mode schedule;
+  - restoring a Venus's settings from its cloud backup.
 
 ## Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
 

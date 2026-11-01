@@ -179,7 +179,7 @@ class Marstack : public Component, public AsyncWebHandler {
   float get_setup_priority() const override { return setup_priority::WIFI - 1.0f; }
 
  protected:
-  std::string formatted_date_string_() const;
+  std::string formatted_date_string_(time_t now) const;
   void publish_diagnostics_();
 
   web_server_base::WebServerBase *base_;
@@ -203,6 +203,9 @@ class Marstack : public Component, public AsyncWebHandler {
   std::atomic<uint32_t> venus_upload_count_{0};
   std::atomic<uint32_t> last_request_{0};
   std::atomic<bool> has_request_{false};
+  // Set while the clock has been handed out unset, so the warning is logged
+  // once per stretch rather than on every one of the batteries' retries.
+  std::atomic<bool> clock_unset_warned_{false};
   uint32_t diagnostics_interval_ms_{60000};
   uint32_t last_diagnostics_{0};
   bool diagnostics_started_{false};
