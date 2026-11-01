@@ -123,6 +123,14 @@ A Marstek CT that is itself on a Marsrelay access point needs `meter_network: ac
 
 hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the configured `deviceId` against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices it must be the Bluetooth MAC plus an `id_mappings` entry mapping the battery's topic ID to that MAC; for all other devices it must match the topic ID exactly (or be connected via `id_mappings`). See [Device IDs](device-ids.md).
 
+## Can Marsrelay run entirely without internet?
+
+Yes. Once it is flashed, nothing in a running setup needs the internet: the batteries talk to Marsrelay, Marsrelay talks to your MQTT broker, and hm2mqtt and Home Assistant run locally. The Marstek app keeps working over Bluetooth. Three things to plan for:
+
+- **Building and flashing** does need internet: ESPHome downloads Marsrelay's components from GitHub and its own toolchain. Build while you are online; the device itself does not phone home.
+- **The time.** Marsrelay passes its own clock on to the batteries, and the example config gets it from internet time servers. Without internet, use a local NTP server, Home Assistant or an RTC module; see [Time](cloud-emulation.md#time).
+- **What only the real cloud can do** stays unavailable: firmware updates the battery downloads over WiFi (connect it to your normal WiFi for those), remote access through the Marstek app, a Venus's AI mode schedule, and restoring a Venus's settings from its cloud backup.
+
 ## Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
 
 Not with this codebase — it's an ESPHome project. But the concept ports: you'd need a WiFi hotspot, a DNS server that resolves every query to the Pi itself, an HTTP server implementing the Marstek cloud endpoints on port 80 plus a TLS one on 443 for the Venus telemetry upload (see `components/marstack/`), and a TLS-enabled MQTT broker on port 8883 that bridges to your main broker (see `components/mosquitto_broker/`). See [How It Works](../README.md#how-it-works) for how the pieces fit together.

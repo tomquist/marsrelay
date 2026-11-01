@@ -17,11 +17,17 @@
 | `backup-configs` | Venus that lost its settings | nothing to restore, as the cloud answers a device without a backup |
 | `getDevicesApply` | Venus after the app's "active upgrade" | only with `power_version` set; see [Venus](venus.md#power-class-venus-e-gen-12) |
 
+Any other request to a cloud host gets a 404 and a `No answer for ...` line in the log; see [troubleshooting](troubleshooting.md#repeating-getdateinfoeuphp-requests-and-udp-proxy-log-lines).
+
 ## Time
 
 Batteries and meters set their clock only from Marsrelay's `getDateInfo` reply; none of them uses NTP. That reply is Marsrelay's own clock, which comes from the `time:` platform in the config (`sntp` in the example). Until it has synced, Marsrelay hands out a 1970 date and logs `Clock not set yet`: batteries reject that date, keep their own clock and ask again every few seconds, and a B2500 holds back its other cloud requests until it gets a valid date.
 
-On a home network without internet, `sntp` never syncs. Point it at an NTP server on your network instead, such as your router, or take the time from Home Assistant:
+On a home network without internet, `sntp` never syncs. Three ways to give Marsrelay the time anyway:
+
+1. **A local NTP server**, such as your router: list it under `servers:`.
+2. **Home Assistant**, if Marsrelay has its API enabled: the `homeassistant` time platform.
+3. **An RTC module**: a battery-backed clock chip on the ESP32's I²C pins keeps the time through power cuts and without any network. It has to be set once, from one of the sources above or from `sntp` while internet is briefly available, and then keeps time on its own. It also means Marsrelay has the right time straight after a power cut, with no `Clock not set yet` window. ESPHome's [DS1307 page](https://esphome.io/components/time/ds1307/) shows the usual setup: read the chip at boot and write it on every time sync. The [time component overview](https://esphome.io/components/time/) lists the other supported chips; DS3231 boards are commonly run on the `ds1307` platform.
 
 ```yaml
 time:
@@ -29,14 +35,12 @@ time:
     id: sntp_time
     timezone: ${timezone}
     servers:
-      - 192.168.1.1   # your router or another local NTP server
-  # or, with Home Assistant's API enabled:
+      - 192.168.1.1   # 1. your router or another local NTP server
+  # 2. or, with Home Assistant's API enabled:
   # - platform: homeassistant
   #   id: ha_time
   #   timezone: ${timezone}
 ```
-
-Any other request to a cloud host gets a 404 and a `No answer for ...` line in the log; see [troubleshooting](troubleshooting.md#repeating-getdateinfoeuphp-requests-and-udp-proxy-log-lines).
 
 ## Settings
 

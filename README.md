@@ -124,6 +124,7 @@ The [diagnostic entities](docs/diagnostics.md) show which part stopped. See
 - [A B2500 stops answering about 30 minutes after a reset](docs/troubleshooting.md#a-b2500-stops-answering-about-30-minutes-after-a-reset)
 - [The battery can't reach a power meter on my home network](docs/troubleshooting.md#the-battery-cant-reach-a-power-meter-on-my-home-network-eg-ecotracker)
 - [hm2mqtt shows all entities as unavailable](docs/troubleshooting.md#hm2mqtt-shows-all-entities-as-unavailable)
+- [Can Marsrelay run entirely without internet?](docs/troubleshooting.md#can-marsrelay-run-entirely-without-internet)
 - [Can I run Marsrelay on a Raspberry Pi?](docs/troubleshooting.md#can-i-run-marsrelay-on-a-raspberry-pi-instead-of-an-esp32)
 
 ## License
