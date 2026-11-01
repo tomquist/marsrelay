@@ -123,13 +123,30 @@ A Marstek CT that is itself on a Marsrelay access point needs `meter_network: ac
 
 hm2mqtt is waiting for data under a `deviceId` that doesn't correspond to what the battery publishes. Check the configured `deviceId` against the ID in the battery's `.../device/<deviceId>/...` topic: for B2500/Saturn devices it must be the Bluetooth MAC plus an `id_mappings` entry mapping the battery's topic ID to that MAC; for all other devices it must match the topic ID exactly (or be connected via `id_mappings`). See [Device IDs](device-ids.md).
 
-## Can Marsrelay run entirely without internet?
+## Can Marsrelay run without internet?
 
-Yes. Once it is flashed, nothing in a running setup needs the internet: the batteries talk to Marsrelay, Marsrelay talks to your MQTT broker, and hm2mqtt and Home Assistant run locally. The Marstek app keeps working over Bluetooth. Three things to plan for:
+Only partly. Marsrelay replaces the Marstek cloud, so the battery never needs to reach Marstek, and its data and controls stay on your network. But the batteries' clocks come from Marsrelay, and Marsrelay's own clock comes from internet time servers. Take the internet away and nobody tells the batteries the time.
 
-- **Building and flashing** does need internet: ESPHome downloads Marsrelay's components from GitHub and its own toolchain. Build while you are online; the device itself does not phone home.
-- **The time.** Marsrelay passes its own clock on to the batteries, and the example config gets it from internet time servers. Without internet, use a local NTP server, Home Assistant or an RTC module; see [Time](cloud-emulation.md#time).
-- **What only the real cloud can do** stays unavailable: firmware updates the battery downloads over WiFi (connect it to your normal WiFi for those), remote access through the Marstek app, a Venus's AI mode schedule, and restoring a Venus's settings from its cloud backup.
+**What breaks without a time source:**
+- Anything a battery does by time of day runs at the wrong time or not at all: time-period schedules, charge and discharge windows, and the rollover of its daily and monthly energy counters.
+- A B2500 also holds back its other cloud requests until it gets a valid date.
+- Marsrelay logs `Clock not set yet`, and the batteries keep asking for the time every few seconds.
+
+**What fixes it is a time source on your own network**; see [Time](cloud-emulation.md#time):
+- **An RTC module on the ESP32** is the only option that needs no other system. Set it once while internet is available, and it keeps the time through power cuts.
+- **A local NTP server**, such as many routers provide.
+- **Home Assistant.**
+
+A Marsrelay that is the only thing on a network with no internet needs the RTC module.
+
+**What else to know:**
+- **Building and flashing** needs internet: ESPHome downloads Marsrelay's components and its toolchain. Once flashed, the device itself does not phone home.
+- **Getting the data out** needs an MQTT broker on your network, and hm2mqtt to turn it into Home Assistant entities. Without them the battery still runs, but nothing reads its data.
+- **Some things only the real cloud can do**, so they stay unavailable:
+  - firmware updates the battery downloads over WiFi (connect it to your normal WiFi for those);
+  - remote access through the Marstek app (the app keeps working over Bluetooth);
+  - a Venus's AI mode schedule;
+  - restoring a Venus's settings from its cloud backup.
 
 ## Can I run Marsrelay on a Raspberry Pi instead of an ESP32?
 
