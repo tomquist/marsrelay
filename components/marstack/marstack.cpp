@@ -597,9 +597,15 @@ void Marstack::dispatch(const Request &req, Response &res) {
   }
 
   if (req.method == "GET" && req.url == "/ems/api/v1/getRealtimeSoc") {
+    // A B2500 asks this only after its controller restarted itself, and takes
+    // any "soc" from 0 to 100 as its own charge level from then on. The real
+    // cloud tells an unknown device 0, which leaves the battery believing it is
+    // empty. Without a "soc" it keeps the estimate it rebuilt itself and asks
+    // again every minute or so until its next restart. Keep the substring
+    // "soc" out of this body entirely: the battery searches for it anywhere.
     res.code = 200;
     res.content_type = "application/json";
-    res.body = "{\"code\":1,\"show\":0,\"msg\":\"ok\",\"data\":{\"soc\":0,\"time_no\":0}}";
+    res.body = "{\"code\":1,\"show\":0,\"msg\":\"ok\",\"data\":{\"time_no\":0}}";
     return;
   }
 
