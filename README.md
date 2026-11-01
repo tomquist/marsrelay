@@ -107,6 +107,7 @@ On current firmware the `deviceId` from step 3 is almost always a long **encrypt
 - [B2500](docs/b2500.md): output power limits, charge level after a controller restart
 - [A Marstek CT on its own Marsrelay](docs/marstek-ct.md)
 - [Shelly UDP emulator](docs/shelly-emulator.md): serve a meter reading from ESPHome
+- [EcoTracker](docs/ecotracker.md): use an everHome EcoTracker on your home network as the battery's meter
 - [Diagnostics](docs/diagnostics.md): Home Assistant entities and automations for when data stops
 - [Troubleshooting](docs/troubleshooting.md)
 
