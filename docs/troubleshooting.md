@@ -59,12 +59,16 @@ If you only need the device ID while you keep debugging, check the Marsrelay log
 
 ## Repeating getDateInfoeu.php requests and UDP proxy log lines
 
-Not a problem — that's healthy operation. `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. A few related things that are easy to misread:
+Not a problem — that's healthy operation, as long as they come every few minutes. A request every few seconds together with `Clock not set yet` in the log means Marsrelay's own clock has not synced; see [below](#the-log-says-clock-not-set-yet). `HTTP GET /app/neng/getDateInfoeu.php` is the battery checking in with the (emulated) cloud, and the `udp_proxy` lines are power meter packets being bridged. A few related things that are easy to misread:
 
 - Messages on `<mqtt_topic_prefix>/request` (e.g. `marsrelay/request`) are **diagnostic logs** of the battery's HTTP requests — not battery data.
 - A B2500 calling `getRealtimeSoc` about once a minute is also expected: it does that after its controller restarted itself, until its next restart (see [B2500](b2500.md#charge-level-after-a-controller-restart)).
 - `No answer for GET /...; replying 404` means the battery called a cloud endpoint Marsrelay does not emulate yet. Please open an issue with that line and the `query params` line logged with it, replacing the values (such as `devid`, which can be your battery's MAC address) with placeholders.
 - The battery publishes under `.../device/...` on its own only now and then. Steady data needs [hm2mqtt](https://github.com/tomquist/hm2mqtt), which polls it (`cd=1`). Until the battery's first message, seeing nothing but `request` messages is expected.
+
+## The log says "Clock not set yet"
+
+Marsrelay's own clock has not synced, so it cannot give the batteries the time: they keep their own clock and ask again every few seconds, which shows up as a stream of `getDateInfoeu.php` requests. Right after a boot this clears up within a minute. If it persists, Marsrelay cannot reach an NTP server, typically on a home network without internet; see [Time](cloud-emulation.md#time) for using a local time source.
 
 ## A Venus keeps dropping off the network
 

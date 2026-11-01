@@ -17,6 +17,25 @@
 | `backup-configs` | Venus that lost its settings | nothing to restore, as the cloud answers a device without a backup |
 | `getDevicesApply` | Venus after the app's "active upgrade" | only with `power_version` set; see [Venus](venus.md#power-class-venus-e-gen-12) |
 
+## Time
+
+Batteries and meters set their clock only from Marsrelay's `getDateInfo` reply; none of them uses NTP. That reply is Marsrelay's own clock, which comes from the `time:` platform in the config (`sntp` in the example). Until it has synced, Marsrelay hands out a 1970 date and logs `Clock not set yet`: batteries reject that date, keep their own clock and ask again every few seconds, and a B2500 holds back its other cloud requests until it gets a valid date.
+
+On a home network without internet, `sntp` never syncs. Point it at an NTP server on your network instead, such as your router, or take the time from Home Assistant:
+
+```yaml
+time:
+  - platform: sntp
+    id: sntp_time
+    timezone: ${timezone}
+    servers:
+      - 192.168.1.1   # your router or another local NTP server
+  # or, with Home Assistant's API enabled:
+  # - platform: homeassistant
+  #   id: ha_time
+  #   timezone: ${timezone}
+```
+
 Any other request to a cloud host gets a 404 and a `No answer for ...` line in the log; see [troubleshooting](troubleshooting.md#repeating-getdateinfoeuphp-requests-and-udp-proxy-log-lines).
 
 ## Settings
