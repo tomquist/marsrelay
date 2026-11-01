@@ -385,8 +385,7 @@ std::string decode_venus_telemetry(const std::string &body) {
   });
 }
 
-std::string Marstack::formatted_date_string_() const {
-  time_t now = time(nullptr);
+std::string Marstack::formatted_date_string_(time_t now) const {
   struct tm timeinfo;
   // Use local time so the date handed to the battery honors the configured
   // timezone. This relies on the system clock being set by a `time:` platform
@@ -552,12 +551,14 @@ void Marstack::dispatch(const Request &req, Response &res) {
     res.code = 200;
     // The real endpoint labels the clock reply text/html, not text/plain.
     res.content_type = "text/html; charset=utf-8";
-    res.body = this->formatted_date_string_();
+    // One reading for both the reply and the warning, so they cannot disagree.
+    const time_t now = time(nullptr);
+    res.body = this->formatted_date_string_(now);
     // Answered even with an unset clock: the batteries reject a date before
     // 2000 and keep their own, and a CT002 adopts it, but a CT002 that gets no
     // 200 repeats the request back to back.
     static constexpr time_t CLOCK_VALID_AFTER = 1577836800;  // 2020-01-01
-    if (time(nullptr) < CLOCK_VALID_AFTER) {
+    if (now < CLOCK_VALID_AFTER) {
       if (!this->clock_unset_warned_.exchange(true)) {
         ESP_LOGW(TAG, "Clock not set yet: batteries will ignore this date and keep asking until the time syncs "
                       "(check the sntp time source)");

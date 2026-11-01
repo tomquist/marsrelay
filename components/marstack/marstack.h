@@ -179,7 +179,7 @@ class Marstack : public Component, public AsyncWebHandler {
   float get_setup_priority() const override { return setup_priority::WIFI - 1.0f; }
 
  protected:
-  std::string formatted_date_string_() const;
+  std::string formatted_date_string_(time_t now) const;
   void publish_diagnostics_();
 
   web_server_base::WebServerBase *base_;
