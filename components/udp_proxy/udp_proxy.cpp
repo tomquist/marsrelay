@@ -32,6 +32,10 @@ void UdpProxy::dump_config() {
   ESP_LOGCONFIG(TAG, "UDP Proxy:");
   ESP_LOGCONFIG(TAG, "  Port: %d", this->port_);
   ESP_LOGCONFIG(TAG, "  Meter Network: %s", this->meter_on_ap_ ? "access point" : "home");
+  if (this->has_meter_address_) {
+    char buf[network::IP_ADDRESS_BUFFER_SIZE];
+    ESP_LOGCONFIG(TAG, "  Meter Address: %s", this->meter_address_.str_to(buf));
+  }
   ESP_LOGCONFIG(TAG, "  Session Timeout: %d ms", this->session_timeout_ms_);
   ESP_LOGCONFIG(TAG, "  Active: %s", this->active_ ? "Yes" : "No");
 }
@@ -61,6 +65,10 @@ bool UdpProxy::is_ap_network(const network::IPAddress &ip) {
 }
 
 uint32_t UdpProxy::request_destination() {
+  if (this->has_meter_address_) {
+    ip4_addr_t meter_addr = this->meter_address_;
+    return meter_addr.addr;
+  }
   if (!this->meter_on_ap_) {
     // Leaves through the default interface, which is the STA one.
     return INADDR_BROADCAST;  // 255.255.255.255
@@ -331,28 +339,29 @@ void UdpProxy::process_requests() {
 
   ESP_LOGD(TAG, "Session created/updated for %s:%d", src_ip_buf, src_port);
 
-  // Forward to the meter's network as broadcast
+  // Forward to the meter: its address if configured, else a broadcast
   if (this->forward_socket_ == nullptr) {
     ESP_LOGW(TAG, "Forward socket not available, cannot forward");
     this->packets_dropped_++;
     return;
   }
 
-  struct sockaddr_in broadcast_addr;
-  memset(&broadcast_addr, 0, sizeof(broadcast_addr));
-  broadcast_addr.sin_family = AF_INET;
-  broadcast_addr.sin_port = htons(this->port_);
-  broadcast_addr.sin_addr.s_addr = this->request_destination();
+  struct sockaddr_in dest_addr;
+  memset(&dest_addr, 0, sizeof(dest_addr));
+  dest_addr.sin_family = AF_INET;
+  dest_addr.sin_port = htons(this->port_);
+  dest_addr.sin_addr.s_addr = this->request_destination();
 
   const char *meter_network = this->meter_on_ap_ ? "AP" : "STA";
   ssize_t sent = this->forward_socket_->sendto(this->buffer_, len, 0,
-                                                (struct sockaddr *) &broadcast_addr, sizeof(broadcast_addr));
+                                                (struct sockaddr *) &dest_addr, sizeof(dest_addr));
 
   if (sent < 0) {
     ESP_LOGE(TAG, "Failed to forward to %s network: %d (%s)", meter_network, errno, strerror(errno));
     this->packets_dropped_++;
   } else {
-    ESP_LOGD(TAG, "Forwarded %zd bytes to %s network broadcast", sent, meter_network);
+    ESP_LOGD(TAG, "Forwarded %zd bytes to %s network %s", sent, meter_network,
+             this->has_meter_address_ ? "meter" : "broadcast");
     if (this->meter_on_ap_) {
       this->packets_to_ap_++;
     } else {
