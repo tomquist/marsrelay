@@ -30,7 +30,7 @@ MULTI_CONF = True
 
 CONF_SESSION_TIMEOUT = "session_timeout"
 CONF_METER_NETWORK = "meter_network"
-CONF_METER_ADDRESS = "meter_address"
+CONF_DESTINATION = "destination"
 CONF_UDP_PROXY_ID = "udp_proxy_id"
 CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
 CONF_ON_METER_TIMEOUT = "on_meter_timeout"
@@ -67,9 +67,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_METER_NETWORK, default="home"): cv.one_of(
                 "home", "access_point", lower=True
             ),
-            # The meter's IP. Requests go straight to it instead of being
-            # broadcast, for networks that don't pass broadcasts on to it.
-            cv.Optional(CONF_METER_ADDRESS): cv.ipv4address,
+            # An IP to send requests to instead of broadcasting them, for
+            # networks that don't pass broadcasts on to the meter.
+            cv.Optional(CONF_DESTINATION): cv.ipv4address,
             cv.Optional(CONF_SESSION_TIMEOUT, default="30s"): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
             cv.Optional(CONF_ON_METER_TIMEOUT): _liveness_automation("5min"),
@@ -120,8 +120,8 @@ async def to_code(config):
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_session_timeout(config[CONF_SESSION_TIMEOUT]))
     cg.add(var.set_meter_on_ap(config[CONF_METER_NETWORK] == "access_point"))
-    if CONF_METER_ADDRESS in config:
-        cg.add(var.set_meter_address(ip_address_literal(config[CONF_METER_ADDRESS])))
+    if CONF_DESTINATION in config:
+        cg.add(var.set_destination(ip_address_literal(config[CONF_DESTINATION])))
     cg.add(var.set_diagnostics_interval(config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds))
 
     for key, fire_on_timeout in (

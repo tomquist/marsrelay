@@ -129,7 +129,7 @@ Give the meter a fixed IP in your router and send the requests straight to it:
 udp_proxy:
   - id: meter_proxy
     port: ${udp_proxy_port}
-    meter_address: 192.168.1.50
+    destination: 192.168.1.50
 ```
 
 ## hm2mqtt shows all entities as unavailable

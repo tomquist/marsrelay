@@ -32,9 +32,9 @@ void UdpProxy::dump_config() {
   ESP_LOGCONFIG(TAG, "UDP Proxy:");
   ESP_LOGCONFIG(TAG, "  Port: %d", this->port_);
   ESP_LOGCONFIG(TAG, "  Meter Network: %s", this->meter_on_ap_ ? "access point" : "home");
-  if (this->has_meter_address_) {
+  if (this->has_destination_) {
     char buf[network::IP_ADDRESS_BUFFER_SIZE];
-    ESP_LOGCONFIG(TAG, "  Meter Address: %s", this->meter_address_.str_to(buf));
+    ESP_LOGCONFIG(TAG, "  Destination: %s", this->destination_.str_to(buf));
   }
   ESP_LOGCONFIG(TAG, "  Session Timeout: %d ms", this->session_timeout_ms_);
   ESP_LOGCONFIG(TAG, "  Active: %s", this->active_ ? "Yes" : "No");
@@ -65,9 +65,9 @@ bool UdpProxy::is_ap_network(const network::IPAddress &ip) {
 }
 
 uint32_t UdpProxy::request_destination() {
-  if (this->has_meter_address_) {
-    ip4_addr_t meter_addr = this->meter_address_;
-    return meter_addr.addr;
+  if (this->has_destination_) {
+    ip4_addr_t dest = this->destination_;
+    return dest.addr;
   }
   if (!this->meter_on_ap_) {
     // Leaves through the default interface, which is the STA one.
@@ -361,7 +361,7 @@ void UdpProxy::process_requests() {
     this->packets_dropped_++;
   } else {
     ESP_LOGD(TAG, "Forwarded %zd bytes to %s network %s", sent, meter_network,
-             this->has_meter_address_ ? "meter" : "broadcast");
+             this->has_destination_ ? "destination" : "broadcast");
     if (this->meter_on_ap_) {
       this->packets_to_ap_++;
     } else {

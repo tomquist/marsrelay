@@ -90,11 +90,11 @@ class UdpProxy : public Component {
   /// round: the meter (e.g. a CT002) is on the access point and the batteries
   /// asking it are on the home network, possibly behind another Marsrelay.
   void set_meter_on_ap(bool meter_on_ap) { this->meter_on_ap_ = meter_on_ap; }
-  /// Send requests straight to the meter instead of broadcasting them, for
+  /// Send requests to this address instead of broadcasting them, for
   /// networks (some repeaters, for one) that don't pass broadcasts on to it.
-  void set_meter_address(const network::IPAddress &address) {
-    this->meter_address_ = address;
-    this->has_meter_address_ = true;
+  void set_destination(const network::IPAddress &address) {
+    this->destination_ = address;
+    this->has_destination_ = true;
   }
 
   void start();
@@ -190,9 +190,9 @@ class UdpProxy : public Component {
   /// Whether the meter is on the access point rather than the home network
   bool meter_on_ap_{false};
 
-  /// The meter's address, when requests go to it rather than a broadcast.
-  network::IPAddress meter_address_;
-  bool has_meter_address_{false};
+  /// Where requests go instead of a broadcast, when set.
+  network::IPAddress destination_;
+  bool has_destination_{false};
 
   /// Whether the proxy is active
   bool active_{false};
