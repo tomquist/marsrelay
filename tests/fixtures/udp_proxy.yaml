@@ -1,7 +1,7 @@
 # One proxy per direction: a meter on the home network answering a battery on
 # the access point (the default), and a meter on the access point answering
 # batteries on the home network. The first sends to a fixed destination
-# instead of broadcasting.
+# instead of broadcasting; the last still uses the deprecated meter_network.
 esphome:
   name: test-udp-proxy
 
@@ -31,4 +31,7 @@ udp_proxy:
     destination: 192.168.1.50
   - id: meter_on_ap
     port: 12345
+    destination_network: access_point
+  - id: legacy_meter_on_ap
+    port: 2220
     meter_network: access_point

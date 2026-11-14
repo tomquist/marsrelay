@@ -31,7 +31,7 @@ float UdpProxy::get_setup_priority() const {
 void UdpProxy::dump_config() {
   ESP_LOGCONFIG(TAG, "UDP Proxy:");
   ESP_LOGCONFIG(TAG, "  Port: %d", this->port_);
-  ESP_LOGCONFIG(TAG, "  Meter Network: %s", this->meter_on_ap_ ? "access point" : "home");
+  ESP_LOGCONFIG(TAG, "  Destination Network: %s", this->meter_on_ap_ ? "access point" : "home");
   if (this->has_destination_) {
     char buf[network::IP_ADDRESS_BUFFER_SIZE];
     ESP_LOGCONFIG(TAG, "  Destination: %s", this->destination_.str_to(buf));
@@ -352,15 +352,15 @@ void UdpProxy::process_requests() {
   dest_addr.sin_port = htons(this->port_);
   dest_addr.sin_addr.s_addr = this->request_destination();
 
-  const char *meter_network = this->meter_on_ap_ ? "AP" : "STA";
+  const char *dest_network = this->meter_on_ap_ ? "AP" : "STA";
   ssize_t sent = this->forward_socket_->sendto(this->buffer_, len, 0,
                                                 (struct sockaddr *) &dest_addr, sizeof(dest_addr));
 
   if (sent < 0) {
-    ESP_LOGE(TAG, "Failed to forward to %s network: %d (%s)", meter_network, errno, strerror(errno));
+    ESP_LOGE(TAG, "Failed to forward to %s network: %d (%s)", dest_network, errno, strerror(errno));
     this->packets_dropped_++;
   } else {
-    ESP_LOGD(TAG, "Forwarded %zd bytes to %s network %s", sent, meter_network,
+    ESP_LOGD(TAG, "Forwarded %zd bytes to %s network %s", sent, dest_network,
              this->has_destination_ ? "destination" : "broadcast");
     if (this->meter_on_ap_) {
       this->packets_to_ap_++;

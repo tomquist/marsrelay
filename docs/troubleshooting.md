@@ -117,7 +117,7 @@ The Marsrelay access point is a separate network, so devices on your home LAN ar
 
 Workaround: bring the meter reading into ESPHome as a sensor and serve it to the battery with the [Shelly UDP emulator](shelly-emulator.md) directly on the ESP32. For an EcoTracker, Marsrelay can read the meter itself; see [EcoTracker](ecotracker.md). Any other meter can be imported from Home Assistant.
 
-A Marstek CT that is itself on a Marsrelay access point needs `meter_network: access_point` on that Marsrelay's `udp_proxy`; see [A Marstek CT on its own Marsrelay](marstek-ct.md).
+A Marstek CT that is itself on a Marsrelay access point needs `destination_network: access_point` on that Marsrelay's `udp_proxy`; see [A Marstek CT on its own Marsrelay](marstek-ct.md).
 
 ## The power meter never answers the UDP proxy
 
