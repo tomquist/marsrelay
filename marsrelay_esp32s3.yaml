@@ -73,7 +73,9 @@ capture_dns:
 # UDP proxy bridges broadcasts between AP and STA networks for power meter discovery
 # Add multiple entries if you need to support different firmware versions
 # For a Marstek CT on this Marsrelay's own access point, add
-# `meter_network: access_point` (see docs/marstek-ct.md)
+# `destination_network: access_point` (see docs/marstek-ct.md). If the meter never
+# answers, e.g. behind a WiFi repeater, set `destination: <meter IP>` to send
+# to it directly instead of broadcasting (see docs/troubleshooting.md)
 udp_proxy:
   - id: meter_proxy
     port: ${udp_proxy_port}

@@ -1,5 +1,8 @@
+import logging
+
 from esphome import automation
 import esphome.codegen as cg
+from esphome.components.network import ip_address_literal
 from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
 from esphome.const import (
@@ -28,11 +31,16 @@ CODEOWNERS = ["@marsrelay"]
 MULTI_CONF = True
 
 CONF_SESSION_TIMEOUT = "session_timeout"
+CONF_DESTINATION_NETWORK = "destination_network"
+# Deprecated alias of destination_network.
 CONF_METER_NETWORK = "meter_network"
+CONF_DESTINATION = "destination"
 CONF_UDP_PROXY_ID = "udp_proxy_id"
 CONF_DIAGNOSTICS_INTERVAL = "diagnostics_interval"
 CONF_ON_METER_TIMEOUT = "on_meter_timeout"
 CONF_ON_METER_RECOVERED = "on_meter_recovered"
+
+_LOGGER = logging.getLogger(__name__)
 
 udp_proxy_ns = cg.esphome_ns.namespace("udp_proxy")
 UdpProxy = udp_proxy_ns.class_("UdpProxy", cg.Component)
@@ -54,17 +62,32 @@ def _liveness_automation(default_timeout: str):
     )
 
 
+def _rename_meter_network(config: ConfigType) -> ConfigType:
+    if isinstance(config, dict) and CONF_METER_NETWORK in config:
+        _LOGGER.warning(
+            "[udp_proxy] '%s' is deprecated, use '%s'",
+            CONF_METER_NETWORK,
+            CONF_DESTINATION_NETWORK,
+        )
+    return cv.rename_key(CONF_METER_NETWORK, CONF_DESTINATION_NETWORK)(config)
+
+
 CONFIG_SCHEMA = cv.All(
+    _rename_meter_network,
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(UdpProxy),
             cv.Required(CONF_PORT): cv.port,
-            # Where the power meter is: on the home network, answering a
-            # battery on the access point (the usual case), or on the access
-            # point, answering batteries on the home network.
-            cv.Optional(CONF_METER_NETWORK, default="home"): cv.one_of(
+            # Which side requests are forwarded to: the home network, for a
+            # meter there answering a battery on the access point (the usual
+            # case), or the access point, for a meter there answering
+            # batteries on the home network.
+            cv.Optional(CONF_DESTINATION_NETWORK, default="home"): cv.one_of(
                 "home", "access_point", lower=True
             ),
+            # An IP to send requests to instead of broadcasting them, for
+            # networks that don't pass broadcasts on to the meter.
+            cv.Optional(CONF_DESTINATION): cv.ipv4address,
             cv.Optional(CONF_SESSION_TIMEOUT, default="30s"): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_DIAGNOSTICS_INTERVAL, default="60s"): cv.update_interval,
             cv.Optional(CONF_ON_METER_TIMEOUT): _liveness_automation("5min"),
@@ -114,7 +137,9 @@ async def to_code(config):
 
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_session_timeout(config[CONF_SESSION_TIMEOUT]))
-    cg.add(var.set_meter_on_ap(config[CONF_METER_NETWORK] == "access_point"))
+    cg.add(var.set_meter_on_ap(config[CONF_DESTINATION_NETWORK] == "access_point"))
+    if CONF_DESTINATION in config:
+        cg.add(var.set_destination(ip_address_literal(config[CONF_DESTINATION])))
     cg.add(var.set_diagnostics_interval(config[CONF_DIAGNOSTICS_INTERVAL].total_milliseconds))
 
     for key, fire_on_timeout in (
