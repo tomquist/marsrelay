@@ -25,7 +25,8 @@ CONFIG_SCHEMA = cv.Schema({})
 
 
 def _final_validate(config):
-    wifi = fv.full_config.get().get("wifi")
+    full_config = fv.full_config.get()
+    wifi = full_config.get("wifi")
     # ap_mode: ALWAYS_ON is ESP32-only, and without an AP there is nothing to keep up
     if wifi is None or "ap" not in wifi or not CORE.is_esp32:
         return config
@@ -35,14 +36,24 @@ def _final_validate(config):
             f"access point up next to the WiFi connection (this is {ESPHOME_VERSION})"
         )
     ap = wifi["ap"]
-    # ALWAYS_ON, or WISP, already keeps it up. Without a station network the
-    # fallback AP is all there is, and ALWAYS_ON would be rejected.
-    if ap["ap_mode"] != "FALLBACK" or not wifi.get("networks"):
+    # ALWAYS_ON, or WISP, already keeps it up
+    if ap["ap_mode"] != "FALLBACK":
         return config
+    # The upstreams ESPHome accepts for ALWAYS_ON. Without one the fallback AP is
+    # all there is, and ALWAYS_ON would be rejected.
+    if not (wifi.get("networks") or "ethernet" in full_config or "modem" in full_config):
+        return config
+    # wifi's own final validation has already run on FALLBACK, so the checks it
+    # makes for ALWAYS_ON are made here: an upstream (above), and this one.
+    if ap["ap_timeout"].total_milliseconds == 0:
+        raise cv.Invalid(
+            "Marsrelay keeps the WiFi AP up (ap_mode: ALWAYS_ON), where wifi.ap.ap_timeout "
+            "is how long a failed AP start waits before it is tried again; it cannot be 0"
+        )
     # Runs after the wifi schema has filled in its defaults, so an explicit
     # ap_mode: FALLBACK can't be told apart from the default, and is changed too.
     _LOGGER.info(
-        "Marsrelay keeps the WiFi AP up next to the station "
+        "Marsrelay keeps the WiFi AP up next to its upstream connection "
         "(ap_mode: ALWAYS_ON, post_connect_roaming: false)"
     )
     ap["ap_mode"] = "ALWAYS_ON"
