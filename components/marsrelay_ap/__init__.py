@@ -18,7 +18,8 @@ CODEOWNERS = ["@marsrelay"]
 
 _LOGGER = logging.getLogger(__name__)
 
-# The first release whose wifi component can keep the AP up next to the station
+# The first release whose wifi component can keep the AP up next to the station.
+# marsrelay_esp32s3.yaml sets the same min_version for configs downloaded since.
 MIN_ESPHOME_VERSION = cv.Version(2026, 11, 0)
 
 CONFIG_SCHEMA = cv.Schema({})

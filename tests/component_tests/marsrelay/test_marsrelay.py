@@ -51,3 +51,19 @@ def test_marsrelay_ships_diagnostic_entities(generate_main, root_config):
         "marstack_http->set_device_active_binary_sensor",
     ):
         assert f"{call}(" in main_cpp, f"missing {call}"
+
+
+def test_shipped_min_version_matches_marsrelay_ap():
+    # min_version stops a too-old ESPHome before anything else, but only in
+    # YAML downloaded after it was added; marsrelay_ap checks the same minimum
+    # for older downloads. Bumping one without the other would split them.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "marsrelay_ap_for_test", REPO_ROOT / "components" / "marsrelay_ap" / "__init__.py"
+    )
+    marsrelay_ap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(marsrelay_ap)
+
+    config = (REPO_ROOT / "marsrelay_esp32s3.yaml").read_text()
+    assert f"  min_version: {marsrelay_ap.MIN_ESPHOME_VERSION}\n" in config

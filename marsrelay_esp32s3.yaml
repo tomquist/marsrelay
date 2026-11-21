@@ -27,6 +27,9 @@ substitutions:
 esphome:
   name: ${device_name}
   friendly_name: ${friendly_name}
+  # The oldest ESPHome whose wifi component can keep the access point up next
+  # to the WiFi connection, which the batteries and meters on it need.
+  min_version: 2026.11.0
 
 psram:
   mode: ${psram.mode}
