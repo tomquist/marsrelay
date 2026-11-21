@@ -1,41 +1,35 @@
-diff --git a/components/wifi/wifi_component.cpp b/components/wifi/wifi_component.cpp
-index 594e598..3ea09f1 100644
---- a/components/wifi/wifi_component.cpp
-+++ b/components/wifi/wifi_component.cpp
-@@ -919,14 +919,18 @@ void WiFiComponent::loop() {
-         provisioning::global_provisioning_manager != nullptr && provisioning::global_provisioning_manager->closed();
- #endif
-     if (this->has_ap() && !this->ap_setup_ && !provisioning_closed) {
--      if (this->ap_timeout_ != 0 &&
-+      // marsrelay: start the fallback AP right away so it runs alongside STA,
-+      // instead of only after ap_timeout_ since last_connected_. A radio that
-+      // can't run both keeps upstream's timing, or the AP would retake the
-+      // radio from every attempt pause_exclusive_ap_() hands the networks.
-+      if (!WIFI_AP_EXCLUSIVE || (this->ap_timeout_ != 0 &&
-           (now - this->last_connected_ > this->ap_timeout_)
- #ifdef USE_WIFI_AP_EXCLUSIVE
-           // After a pause, or a start that failed, the networks get a full
-           // ap_timeout before the AP is tried again.
-           && now - this->ap_exclusive_changed_ > this->ap_timeout_
- #endif
--      ) {
-+      )) {
-         ESP_LOGI(TAG, "Starting fallback AP");
- #ifdef USE_WIFI_AP_EXCLUSIVE
-         this->ap_exclusive_changed_ = now;
-@@ -1742,7 +1746,14 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
-     this->num_retried_ = 0;
- #ifdef USE_WIFI_AP
-     if (this->has_ap()) {
--      this->disable_ap_();
-+#ifdef USE_CAPTIVE_PORTAL
-+      if (this->is_captive_portal_active_()) {
-+        captive_portal::global_captive_portal->end();
-+      }
-+#endif
-+      // marsrelay: keep the AP enabled alongside the STA connection
-+      // (upstream disables it via this->disable_ap_()).
-+      ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
-     }
- #endif
- #ifdef USE_IMPROV_BLE
+diff --git a/components/wifi/__init__.py b/components/wifi/__init__.py
+index 168cc6c..8baaa98 100644
+--- a/components/wifi/__init__.py
++++ b/components/wifi/__init__.py
+@@ -372,7 +372,15 @@ WIFI_NETWORK_AP = WIFI_NETWORK_BASE.extend(
+         cv.Optional(
+             CONF_AP_TIMEOUT, default=DEFAULT_AP_TIMEOUT
+         ): cv.positive_time_period_milliseconds,
+-        cv.Optional(CONF_AP_MODE, default=WIFI_AP_MODE_FALLBACK): _validate_ap_mode,
++        # marsrelay: keep the AP up next to the station by default, since the
++        # batteries and meters on it need it (upstream defaults to FALLBACK).
++        # ALWAYS_ON is ESP32-only, so other platforms keep upstream's default.
++        cv.Optional(
++            CONF_AP_MODE,
++            default=lambda: (
++                WIFI_AP_MODE_ALWAYS_ON if CORE.is_esp32 else WIFI_AP_MODE_FALLBACK
++            ),
++        ): _validate_ap_mode,
+         cv.Optional(CONF_DNS_SERVERS): cv.All(
+             cv.ensure_list(cv.ipv4address),
+             cv.Length(min=1, max=2),
+@@ -754,7 +762,12 @@ CONFIG_SCHEMA = cv.All(
+             ),
+             cv.Optional(CONF_PASSIVE_SCAN, default=False): cv.boolean,
+             cv.Optional(CONF_ENABLE_ON_BOOT, default=True): cv.boolean,
+-            cv.Optional(CONF_POST_CONNECT_ROAMING, default=True): cv.boolean,
++            # marsrelay: off by default on ESP32, as ap_mode: ALWAYS_ON requires;
++            # its scan would take the AP and the devices on it off the air
++            # (upstream: True, which other platforms keep).
++            cv.Optional(
++                CONF_POST_CONNECT_ROAMING, default=lambda: not CORE.is_esp32
++            ): cv.boolean,
+             cv.Optional(CONF_ON_CONNECT): automation.validate_automation(single=True),
+             cv.Optional(CONF_ON_DISCONNECT): automation.validate_automation(
+                 single=True

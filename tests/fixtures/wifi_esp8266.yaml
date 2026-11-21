@@ -1,0 +1,20 @@
+# A non-ESP32 board with an AP: ap_mode: ALWAYS_ON is ESP32-only, so the fork
+# leaves upstream's defaults in place here.
+esphome:
+  name: test-wifi-esp8266
+
+esp8266:
+  board: d1_mini
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+    components: [wifi]
+
+wifi:
+  ssid: "test"
+  password: "testpass"
+  ap:
+    ssid: "fallback"
+    password: "fallbackpass"
