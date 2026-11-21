@@ -374,7 +374,13 @@ WIFI_NETWORK_AP = WIFI_NETWORK_BASE.extend(
         ): cv.positive_time_period_milliseconds,
         # marsrelay: keep the AP up next to the station by default, since the
         # batteries and meters on it need it (upstream defaults to FALLBACK).
-        cv.Optional(CONF_AP_MODE, default=WIFI_AP_MODE_ALWAYS_ON): _validate_ap_mode,
+        # ALWAYS_ON is ESP32-only, so other platforms keep upstream's default.
+        cv.Optional(
+            CONF_AP_MODE,
+            default=lambda: (
+                WIFI_AP_MODE_ALWAYS_ON if CORE.is_esp32 else WIFI_AP_MODE_FALLBACK
+            ),
+        ): _validate_ap_mode,
         cv.Optional(CONF_DNS_SERVERS): cv.All(
             cv.ensure_list(cv.ipv4address),
             cv.Length(min=1, max=2),
@@ -756,9 +762,12 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_PASSIVE_SCAN, default=False): cv.boolean,
             cv.Optional(CONF_ENABLE_ON_BOOT, default=True): cv.boolean,
-            # marsrelay: off by default, as ap_mode: ALWAYS_ON requires; its scan
-            # would take the AP and the devices on it off the air (upstream: True).
-            cv.Optional(CONF_POST_CONNECT_ROAMING, default=False): cv.boolean,
+            # marsrelay: off by default on ESP32, as ap_mode: ALWAYS_ON requires;
+            # its scan would take the AP and the devices on it off the air
+            # (upstream: True, which other platforms keep).
+            cv.Optional(
+                CONF_POST_CONNECT_ROAMING, default=lambda: not CORE.is_esp32
+            ): cv.boolean,
             cv.Optional(CONF_ON_CONNECT): automation.validate_automation(single=True),
             cv.Optional(CONF_ON_DISCONNECT): automation.validate_automation(
                 single=True

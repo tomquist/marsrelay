@@ -30,6 +30,9 @@ each marked with a `# marsrelay:` comment so they're easy to find:
    `ALWAYS_ON` requires: the roaming scan after a connect would take the AP, and
    the devices on it, off the air.
 
+Both apply on ESP32 only, since `ALWAYS_ON` is ESP32-only upstream; other
+platforms keep upstream's defaults.
+
 Defaults rather than settings in `marsrelay_esp32s3.yaml`, so configs users
 already downloaded keep their AP without any change on their side. Either can
 still be set explicitly.
