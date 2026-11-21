@@ -19,6 +19,8 @@ ESPHome can't find a Marsrelay component the YAML uses, e.g. `Platform not found
       refresh: always
   ```
 
+- **`components:` list under the source:** the list has to name every Marsrelay component the config needs, including ones they load themselves. If the error names `marsrelay_ap`, add it to the list, or remove the list to load all of them, as the shipped YAML does.
+
 ## The battery doesn't react to commands (e.g. cd=1)
 
 Marsrelay's log shows `Received control message: ...` but the battery never answers: the command reaches Marsrelay but doesn't match the topic the battery listens on. Compare the `.../device/<deviceId>/...` topic the battery publishes on (see [finding your device information](../README.md#3-find-your-device-information)) with the topic your commands arrive on. Two common causes:

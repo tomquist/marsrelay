@@ -8,6 +8,7 @@ from esphome import automation
 from esphome.components import esp32
 from esphome.const import CONF_ID, CONF_PORT, CONF_TIMEOUT, CONF_TRIGGER_ID
 
+AUTO_LOAD = ["marsrelay_ap"]
 CODEOWNERS = ["@marsrelay"]
 DEPENDENCIES = ["esp32"]
 
