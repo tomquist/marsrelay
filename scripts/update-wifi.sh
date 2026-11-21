@@ -10,7 +10,7 @@
 #   1. Downloads the pristine upstream wifi component at <esphome_version> and
 #      commits it as a "vendor import", so the re-apply below shows up as an
 #      ordinary diff against pristine upstream.
-#   2. Re-creates the patch's merge base (pristine wifi_component.cpp at the
+#   2. Re-creates the patch's merge base (the pristine patched file at the
 #      *previous* pin) as a git blob and re-applies
 #      components/wifi/patches/marsrelay-ap-sta.patch with `git apply --3way`.
 #      Where upstream rewrote a patched region you get standard git conflict
@@ -35,6 +35,13 @@ ROOT="$(git rev-parse --show-toplevel)"
 
 WIFI_DIR="$ROOT/components/wifi"
 PATCH="$WIFI_DIR/patches/marsrelay-ap-sta.patch"
+# The vendored file the patch changes, read from its own header so the scripts
+# don't have to be kept in step with it.
+PATCHED="$(sed -n 's#^diff --git a/components/wifi/\([^ ]*\) b/.*#\1#p' "$PATCH" | head -n1)"
+if [[ -z "$PATCHED" ]] || [[ "$(grep -c '^diff --git ' "$PATCH")" -ne 1 ]]; then
+  echo "ERROR: $(basename "$PATCH") must change exactly one file under components/wifi/." >&2
+  exit 1
+fi
 
 # The version we are updating *from*, read before UPSTREAM_VERSION is overwritten
 # below. It identifies the patch's merge base; see the blob step further down.
@@ -74,7 +81,7 @@ git -C "$ROOT" add -A -- "${WIFI_DIR}"
 git -C "$ROOT" commit -q -m "vendor: import pristine esphome wifi ${VERSION}"
 
 # `git apply --3way` needs the patch's *pre-image* blob -- the left-hand side of
-# its `index <old>..<new>` header, i.e. wifi_component.cpp as pristine upstream
+# its `index <old>..<new>` header, i.e. ${PATCHED} as pristine upstream
 # had it at PREV_VERSION -- to be present in the object database. The vendor
 # import above puts that blob in history, but only on this branch: the update PRs
 # are squash-merged, so on the default branch the blob is gone and --3way silently
@@ -93,8 +100,8 @@ base_blob_want="$(sed -n 's/^index \([0-9a-f]\{4,\}\)\.\..*/\1/p' "$PATCH" | hea
 base_tmp="$(mktemp)"
 if [[ -z "$base_blob_want" ]]; then
   echo "    WARNING: $(basename "$PATCH") has no 'index' header; no merge base." >&2
-elif ! wifi_download_upstream_file "$PREV_VERSION" wifi_component.cpp "$base_tmp"; then
-  echo "    WARNING: could not download pristine ${PREV_VERSION} wifi_component.cpp;" >&2
+elif ! wifi_download_upstream_file "$PREV_VERSION" "$PATCHED" "$base_tmp"; then
+  echo "    WARNING: could not download pristine ${PREV_VERSION} ${PATCHED};" >&2
   echo "    continuing without a merge base." >&2
 else
   base_blob_got="$(git -C "$ROOT" hash-object -w "$base_tmp")"
@@ -104,7 +111,7 @@ else
   else
     # The recorded patch is not a diff against pristine PREV_VERSION. Worth
     # knowing about, but check-wifi-fork.sh is the check that adjudicates it.
-    echo "    WARNING: pristine ${PREV_VERSION} wifi_component.cpp hashes to" >&2
+    echo "    WARNING: pristine ${PREV_VERSION} ${PATCHED} hashes to" >&2
     echo "    ${base_blob_got}, but $(basename "$PATCH") records ${base_blob_want}" >&2
     echo "    as its base; continuing without a merge base." >&2
   fi
@@ -118,15 +125,15 @@ else
 fi
 if git -C "$ROOT" apply --3way "$PATCH"; then
   echo "    patch applied cleanly"
-elif grep -q '^<<<<<<< ' "${WIFI_DIR}/wifi_component.cpp"; then
+elif grep -q '^<<<<<<< ' "${WIFI_DIR}/${PATCHED}"; then
   cat >&2 <<EOF
 
-!! The patch did not apply cleanly -- components/wifi/wifi_component.cpp now has
+!! The patch did not apply cleanly -- components/wifi/${PATCHED} now has
 !! conflict markers. Resolve them, then finish manually:
 
-     \$EDITOR components/wifi/wifi_component.cpp   # resolve the markers
-     git add components/wifi/wifi_component.cpp    # clears the conflicted index
-     git diff HEAD -- components/wifi/wifi_component.cpp > $PATCH
+     \$EDITOR components/wifi/${PATCHED}   # resolve the markers
+     git add components/wifi/${PATCHED}    # clears the conflicted index
+     git diff HEAD -- components/wifi/${PATCHED} > $PATCH
      # bump the "Current base" / Upstream version in components/wifi/README.md
      # to ${VERSION} (UPSTREAM_VERSION and the CI pin are already handled)
      scripts/check-wifi-fork.sh
@@ -135,21 +142,20 @@ EOF
   exit 1
 else
   # No merge base, so git could only try a straight apply and that failed:
-  # wifi_component.cpp is pristine ${VERSION}, unchanged. Do NOT regenerate the
+  # ${PATCHED} is pristine ${VERSION}, unchanged. Do NOT regenerate the
   # patch from it -- the diff would be empty and the fork's delta would be lost.
   cat >&2 <<EOF
 
 !! The patch did not apply and there was no merge base to fall back on, so
-!! components/wifi/wifi_component.cpp is still pristine ${VERSION} -- there is
+!! components/wifi/${PATCHED} is still pristine ${VERSION} -- there is
 !! nothing to resolve in place and $(basename "$PATCH") must NOT be regenerated
 !! from it.
 !!
 !! Re-run once the merge base is available (check the WARNING above), or port the
-!! patch by hand onto pristine ${VERSION}, keeping its two marsrelay hunks:
-!! always start the fallback AP in loop(), and keep the AP up in
-!! check_connecting_finished(). Then:
+!! patch by hand onto pristine ${VERSION}, keeping its marsrelay changes
+!! (the \`marsrelay:\` comments). Then:
 !!
-!!     git diff HEAD -- components/wifi/wifi_component.cpp > $PATCH
+!!     git diff HEAD -- components/wifi/${PATCHED} > $PATCH
 !!     # bump the "Current base" / Upstream version in components/wifi/README.md
 !!     # to ${VERSION} (UPSTREAM_VERSION and the CI pin are already handled)
 !!     scripts/check-wifi-fork.sh
@@ -162,7 +168,7 @@ echo "==> Regenerating patch against the new base"
 # Diff against HEAD (the pristine vendor import just committed), not the index:
 # git apply --3way stages its result in modern git, which would make a plain
 # `git diff` (worktree vs index) empty and silently produce an empty patch.
-git -C "$ROOT" diff HEAD -- components/wifi/wifi_component.cpp > "$PATCH"
+git -C "$ROOT" diff HEAD -- "components/wifi/${PATCHED}" > "$PATCH"
 
 echo "==> Bumping version markers"
 # The CI esphome pin is derived from components/wifi/UPSTREAM_VERSION (already

@@ -1,57 +1,26 @@
-diff --git a/components/wifi/wifi_component.cpp b/components/wifi/wifi_component.cpp
-index afaccbf..15c0da0 100644
---- a/components/wifi/wifi_component.cpp
-+++ b/components/wifi/wifi_component.cpp
-@@ -948,7 +948,16 @@ void WiFiComponent::loop() {
-     // power-cycled.
-     if (this->has_ap() && !this->ap_setup_ && !this->is_provisioning_closed_()) {
-       const uint32_t since_connected = now - this->last_connected_;
--      if (this->ap_timeout_ != 0 &&
-+      // marsrelay: start the fallback AP right away so it runs alongside STA,
-+      // instead of only after ap_timeout_ since last_connected_; a start that
-+      // failed still waits as upstream's does. A radio that can't run both
-+      // keeps upstream's timing, or the AP would retake the radio from every
-+      // attempt pause_exclusive_ap_() hands the networks.
-+      if (
-+#ifndef USE_WIFI_AP_EXCLUSIVE
-+          this->ap_start_failures_ == 0 ||
-+#endif
-+          (this->ap_timeout_ != 0 &&
- #ifdef USE_WIFI_AP_EXCLUSIVE
-           // After a pause, or a start that failed, the networks get a full ap_timeout before the AP is tried again
-           since_connected > this->ap_timeout_ && now - this->ap_changed_ > this->ap_timeout_
-@@ -956,14 +965,15 @@ void WiFiComponent::loop() {
-           // Tried in whole ap_timeout slots after the last connection; after UINT8_MAX slots it is no longer tried
-           this->ap_start_failures_ != UINT8_MAX && since_connected / this->ap_timeout_ > this->ap_start_failures_
- #endif
--      ) {
-+      )) {
-         ESP_LOGI(TAG, "Starting fallback AP");
- #ifdef USE_WIFI_AP_EXCLUSIVE
-         this->ap_changed_ = now;
- #endif
-         this->setup_ap_config_();
- #ifndef USE_WIFI_AP_EXCLUSIVE
--        if (!this->ap_setup_) {
-+        // marsrelay: also started with ap_timeout_ 0, where there are no slots to wait for
-+        if (!this->ap_setup_ && this->ap_timeout_ != 0) {
-           // Skip the next slot too, so at least a full ap_timeout passes wherever in its slot this try ran
-           uint32_t slot = since_connected / this->ap_timeout_ + 1;
-           this->ap_start_failures_ = slot < UINT8_MAX ? slot : UINT8_MAX;
-@@ -1831,11 +1841,11 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
-     this->num_retried_ = 0;
- #ifdef WIFI_AP_HAS_PORTAL
-     if (this->has_ap()) {
--#ifdef USE_WIFI_AP_PERSISTENT
--      this->end_ap_portal_();  // the AP stays up for its clients
--#else
--      this->disable_ap_();
--#endif
-+      // marsrelay: keep the AP enabled alongside the STA connection and only
-+      // end its portal, as ap_mode: ALWAYS_ON does (upstream's fallback AP is
-+      // disabled here via this->disable_ap_()).
-+      ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
-+      this->end_ap_portal_();
-     }
- #endif
- #ifdef USE_WIFI_DPP
+diff --git a/components/wifi/__init__.py b/components/wifi/__init__.py
+index 168cc6c..9863774 100644
+--- a/components/wifi/__init__.py
++++ b/components/wifi/__init__.py
+@@ -372,7 +372,9 @@ WIFI_NETWORK_AP = WIFI_NETWORK_BASE.extend(
+         cv.Optional(
+             CONF_AP_TIMEOUT, default=DEFAULT_AP_TIMEOUT
+         ): cv.positive_time_period_milliseconds,
+-        cv.Optional(CONF_AP_MODE, default=WIFI_AP_MODE_FALLBACK): _validate_ap_mode,
++        # marsrelay: keep the AP up next to the station by default, since the
++        # batteries and meters on it need it (upstream defaults to FALLBACK).
++        cv.Optional(CONF_AP_MODE, default=WIFI_AP_MODE_ALWAYS_ON): _validate_ap_mode,
+         cv.Optional(CONF_DNS_SERVERS): cv.All(
+             cv.ensure_list(cv.ipv4address),
+             cv.Length(min=1, max=2),
+@@ -754,7 +756,9 @@ CONFIG_SCHEMA = cv.All(
+             ),
+             cv.Optional(CONF_PASSIVE_SCAN, default=False): cv.boolean,
+             cv.Optional(CONF_ENABLE_ON_BOOT, default=True): cv.boolean,
+-            cv.Optional(CONF_POST_CONNECT_ROAMING, default=True): cv.boolean,
++            # marsrelay: off by default, as ap_mode: ALWAYS_ON requires; its scan
++            # would take the AP and the devices on it off the air (upstream: True).
++            cv.Optional(CONF_POST_CONNECT_ROAMING, default=False): cv.boolean,
+             cv.Optional(CONF_ON_CONNECT): automation.validate_automation(single=True),
+             cv.Optional(CONF_ON_DISCONNECT): automation.validate_automation(
+                 single=True

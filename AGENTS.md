@@ -40,7 +40,8 @@ in CI (`.github/workflows/`). Match CI behavior; don't loosen the version pin.
 ## The vendored `wifi` fork
 
 `components/wifi/` is upstream ESPHome's `wifi` component plus one patch
-(`patches/marsrelay-ap-sta.patch`) that keeps the fallback AP up alongside STA.
+(`patches/marsrelay-ap-sta.patch`) that makes the AP stay up alongside STA by
+default (`ap_mode: ALWAYS_ON`, `post_connect_roaming: false`).
 Do not hand-edit the vendored files to update ESPHome. Instead:
 
 ```sh

@@ -5,7 +5,7 @@
 #     pristine upstream @ components/wifi/UPSTREAM_VERSION   +   our patch
 #
 # i.e. every file matches upstream byte-for-byte, and the only local change is
-# components/wifi/patches/marsrelay-ap-sta.patch applied to wifi_component.cpp.
+# components/wifi/patches/marsrelay-ap-sta.patch applied to the one file it changes.
 #
 # This is the guard that catches a patch landing in the wrong place or accidental
 # drift in the vendored files. Run locally or in CI.
@@ -29,7 +29,7 @@ mkdir -p "$tmp/components/wifi"
 echo "Verifying components/wifi against pristine esphome ${VERSION} + patch"
 wifi_download_upstream "$VERSION" "$tmp/components/wifi"
 
-# Apply our patch onto the pristine copy. The patch only touches wifi_component.cpp.
+# Apply our patch onto the pristine copy.
 if ! ( cd "$tmp" && git apply "$PATCH" ); then
   echo >&2
   echo "FAILED: $(basename "$PATCH") does not apply to pristine esphome ${VERSION}." >&2

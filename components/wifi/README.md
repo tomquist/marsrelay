@@ -1,9 +1,9 @@
 # wifi (forked from ESPHome)
 
-This is a fork of ESPHome's built-in `wifi` component. It exists solely to
-allow the **fallback AP / captive portal to run simultaneously with the STA
-connection**, which upstream does not support — upstream treats AP mode as a
-fallback that shuts down as soon as the STA associates.
+This is a fork of ESPHome's built-in `wifi` component. It exists solely to keep
+the **access point up alongside the STA connection by default**: the batteries
+and meters that join the Marsrelay's AP need it to stay up, while upstream's
+default AP is a fallback that shuts down as soon as the STA associates.
 
 ## Current base
 
@@ -16,26 +16,23 @@ is the single source of truth used by the tooling below.
 Everything in this directory is byte-for-byte identical to that upstream
 revision except for the single patch in
 [`patches/marsrelay-ap-sta.patch`](./patches/marsrelay-ap-sta.patch), which is
-also reflected inline in `wifi_component.cpp` (the patch is what actually
-ships). CI enforces this with `scripts/check-wifi-fork.sh`.
+also reflected inline in `__init__.py` (the patch is what actually ships). CI
+enforces this with `scripts/check-wifi-fork.sh`.
 
-## The patch (AP + STA simultaneously)
+## The patch (AP + STA by default)
 
-There are exactly **two changes**, both in `wifi_component.cpp`, marked
-with a `// marsrelay:` comment so they're easy to find:
+Since ESPHome 2026.11, upstream can keep the AP up next to the STA itself, with
+`ap_mode: ALWAYS_ON`. The patch only changes **two defaults** in `__init__.py`,
+each marked with a `# marsrelay:` comment so they're easy to find:
 
-1. **Always start the fallback AP.**
-   Upstream only starts the AP after `ap_timeout_` has elapsed since
-   `last_connected_`. We start it unconditionally so it's available from boot,
-   regardless of STA state. A start that fails still waits before the next try,
-   as upstream's does. Radios that can't run AP and STA together
-   (`USE_WIFI_AP_EXCLUSIVE`, i.e. LN882x) keep upstream's timing, since there
-   the AP and the networks have to take turns.
+1. **`ap: ap_mode` defaults to `ALWAYS_ON`** (upstream: `FALLBACK`).
+2. **`post_connect_roaming` defaults to `false`** (upstream: `true`), which
+   `ALWAYS_ON` requires: the roaming scan after a connect would take the AP, and
+   the devices on it, off the air.
 
-2. **Keep the AP enabled after STA connects.**
-   Upstream calls `this->disable_ap_()` to disable the fallback AP once the STA
-   associates. We only end its captive portal instead, as upstream's
-   `ap_mode: ALWAYS_ON` does, so AP+STA stay up together.
+Defaults rather than settings in `marsrelay_esp32s3.yaml`, so configs users
+already downloaded keep their AP without any change on their side. Either can
+still be set explicitly.
 
 To see (and verify) the exact diff against upstream:
 
@@ -44,8 +41,8 @@ scripts/check-wifi-fork.sh
 ```
 
 It downloads pristine upstream at `UPSTREAM_VERSION`, applies the recorded
-patch, and asserts every file matches. Expect only the `// marsrelay:`
-hunks in `wifi_component.cpp`.
+patch, and asserts every file matches. Expect only the `# marsrelay:` hunks in
+`__init__.py`.
 
 ## Updating to a newer ESPHome release
 
@@ -61,7 +58,7 @@ The script:
 1. Downloads the pristine upstream `wifi` component at `2026.X.Y` and commits it
    as a **vendor import** (`vendor: import pristine esphome wifi 2026.X.Y`), so
    the re-apply below lands as an ordinary diff against pristine upstream.
-2. Re-creates the patch's **merge base** -- `wifi_component.cpp` as pristine
+2. Re-creates the patch's **merge base** -- the patched file as pristine
    upstream had it at the *previous* pin -- by downloading it and writing it into
    the object database with `git hash-object -w`, checking it hashes to the
    left-hand side of the patch's own `index <old>..<new>` header.
@@ -96,7 +93,7 @@ git add -A && git commit -m "Re-apply marsrelay patch on esphome wifi 2026.X.Y"
 > reaches the default branch. Without it `git apply --3way` prints `repository
 > lacks the necessary blob` and quietly degrades to a plain `git apply` -- which
 > succeeds whenever upstream left the patched context alone, and on failure
-> leaves `wifi_component.cpp` **unmodified**, with no conflict markers to resolve.
+> leaves the patched file **unmodified**, with no conflict markers to resolve.
 > Re-fetching the base makes the merge work the same way on any checkout. If it
 > is ever unavailable the script says so and refuses to pretend there is
 > something to resolve.
@@ -145,8 +142,7 @@ Leave them unset and the job still detects upstream changes but can't open a PR.
 
 ## Why a full fork (instead of a small override)
 
-ESPHome's wifi component doesn't expose an extension point for "keep AP up
-after STA connects", and the AP/STA mode transitions are tangled into private
-methods of `WiFiComponent`. Subclassing or monkey-patching from a small
-component would be more fragile than carrying the two-line patch on a full
-fork.
+ESPHome has no way for a component to change another component's defaults, and
+the marsrelay YAML is downloaded once and kept by its users, so a setting added
+to it later never reaches them. Overriding `wifi` and carrying a two-line patch
+on it does, and the tooling above keeps it in step with upstream.
