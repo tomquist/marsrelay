@@ -7,8 +7,8 @@ fallback that shuts down as soon as the STA associates.
 
 ## Current base
 
-- **Upstream version:** `2026.10.0`
-- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.10.0/esphome/components/wifi>
+- **Upstream version:** `2026.11.0`
+- **Upstream source:** <https://github.com/esphome/esphome/tree/2026.11.0/esphome/components/wifi>
 
 The pinned version is stored in [`UPSTREAM_VERSION`](./UPSTREAM_VERSION), which
 is the single source of truth used by the tooling below.
@@ -21,19 +21,21 @@ ships). CI enforces this with `scripts/check-wifi-fork.sh`.
 
 ## The patch (AP + STA simultaneously)
 
-There are exactly **two changes**, both in `wifi_component.cpp`, both marked
+There are exactly **two changes**, both in `wifi_component.cpp`, marked
 with a `// marsrelay:` comment so they're easy to find:
 
 1. **Always start the fallback AP.**
    Upstream only starts the AP after `ap_timeout_` has elapsed since
    `last_connected_`. We start it unconditionally so it's available from boot,
-   regardless of STA state. Radios that can't run AP and STA together
+   regardless of STA state. A start that fails still waits before the next try,
+   as upstream's does. Radios that can't run AP and STA together
    (`USE_WIFI_AP_EXCLUSIVE`, i.e. LN882x) keep upstream's timing, since there
    the AP and the networks have to take turns.
 
 2. **Keep the AP enabled after STA connects.**
-   Upstream calls `this->wifi_mode_({}, false)` to disable the AP once the STA
-   associates. We skip that call so AP+STA stay up together.
+   Upstream calls `this->disable_ap_()` to disable the fallback AP once the STA
+   associates. We only end its captive portal instead, as upstream's
+   `ap_mode: persistent` does, so AP+STA stay up together.
 
 To see (and verify) the exact diff against upstream:
 
@@ -42,7 +44,7 @@ scripts/check-wifi-fork.sh
 ```
 
 It downloads pristine upstream at `UPSTREAM_VERSION`, applies the recorded
-patch, and asserts every file matches. Expect only the two `// marsrelay:`
+patch, and asserts every file matches. Expect only the `// marsrelay:`
 hunks in `wifi_component.cpp`.
 
 ## Updating to a newer ESPHome release

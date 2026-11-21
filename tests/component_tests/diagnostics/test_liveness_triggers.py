@@ -44,11 +44,15 @@ def test_restart_is_gated_on_the_other_liveness_signal(generate_main):
     main_cpp = generate_main(str(FIXTURE))
     # Either side can go quiet on its own, so the documented restart pattern
     # checks the MQTT binary sensor before rebooting on an HTTP timeout.
-    assert "restart::RestartSwitch" in main_cpp
-    assert "local_broker->set_device_active_binary_sensor(" in main_cpp
-    # ESPHome 2026.10 generates binary_sensor.is_off as a static predicate in
-    # the global section instead of a BinarySensorCondition in main().
+    # ESPHome 2026.10 generates binary_sensor.is_off as a static predicate, and
+    # 2026.11 the restart switch as a function calling restart_device(), in the
+    # global section instead of as classes in main().
     generated = main_cpp + CORE.cpp_global_section
+    assert (
+        "restart::RestartSwitch" in generated
+        or "restart::restart_device()" in generated
+    )
+    assert "local_broker->set_device_active_binary_sensor(" in main_cpp
     assert (
         "BinarySensorCondition" in generated
         or "battery_mqtt_data->state == false" in generated

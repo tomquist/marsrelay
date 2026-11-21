@@ -948,7 +948,16 @@ void WiFiComponent::loop() {
     // power-cycled.
     if (this->has_ap() && !this->ap_setup_ && !this->is_provisioning_closed_()) {
       const uint32_t since_connected = now - this->last_connected_;
-      if (this->ap_timeout_ != 0 &&
+      // marsrelay: start the fallback AP right away so it runs alongside STA,
+      // instead of only after ap_timeout_ since last_connected_; a start that
+      // failed still waits as upstream's does. A radio that can't run both
+      // keeps upstream's timing, or the AP would retake the radio from every
+      // attempt pause_exclusive_ap_() hands the networks.
+      if (
+#ifndef USE_WIFI_AP_EXCLUSIVE
+          this->ap_start_failures_ == 0 ||
+#endif
+          (this->ap_timeout_ != 0 &&
 #ifdef USE_WIFI_AP_EXCLUSIVE
           // After a pause, or a start that failed, the networks get a full ap_timeout before the AP is tried again
           since_connected > this->ap_timeout_ && now - this->ap_changed_ > this->ap_timeout_
@@ -956,14 +965,15 @@ void WiFiComponent::loop() {
           // Tried in whole ap_timeout slots after the last connection; after UINT8_MAX slots it is no longer tried
           this->ap_start_failures_ != UINT8_MAX && since_connected / this->ap_timeout_ > this->ap_start_failures_
 #endif
-      ) {
+      )) {
         ESP_LOGI(TAG, "Starting fallback AP");
 #ifdef USE_WIFI_AP_EXCLUSIVE
         this->ap_changed_ = now;
 #endif
         this->setup_ap_config_();
 #ifndef USE_WIFI_AP_EXCLUSIVE
-        if (!this->ap_setup_) {
+        // marsrelay: also started with ap_timeout_ 0, where there are no slots to wait for
+        if (!this->ap_setup_ && this->ap_timeout_ != 0) {
           // Skip the next slot too, so at least a full ap_timeout passes wherever in its slot this try ran
           uint32_t slot = since_connected / this->ap_timeout_ + 1;
           this->ap_start_failures_ = slot < UINT8_MAX ? slot : UINT8_MAX;
@@ -1831,11 +1841,11 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
     this->num_retried_ = 0;
 #ifdef WIFI_AP_HAS_PORTAL
     if (this->has_ap()) {
-#ifdef USE_WIFI_AP_PERSISTENT
-      this->end_ap_portal_();  // the AP stays up for its clients
-#else
-      this->disable_ap_();
-#endif
+      // marsrelay: keep the AP enabled alongside the STA connection and only
+      // end its portal, as ap_mode: persistent does (upstream's fallback AP is
+      // disabled here via this->disable_ap_()).
+      ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
+      this->end_ap_portal_();
     }
 #endif
 #ifdef USE_WIFI_DPP
