@@ -5,11 +5,8 @@ on:
   pull_request:
 
 jobs:
-  # Read the ESPHome pin from components/wifi/UPSTREAM_VERSION rather than
-  # hardcoding it here. Keeping the version out of the workflow file lets the
-  # automated wifi-update-check bump land in an ordinary commit that the default
-  # GITHUB_TOKEN can push (App tokens can't touch .github/workflows/ without the
-  # `workflows` permission, which isn't grantable to GITHUB_TOKEN).
+  # Read the ESPHome pin from ESPHOME_VERSION, the one place it is set, which
+  # the dev setup in AGENTS.md installs too.
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -17,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: pin
-        run: echo "version=$(cat components/wifi/UPSTREAM_VERSION)" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(cat ESPHOME_VERSION)" >> "$GITHUB_OUTPUT"
 
   ci:
     needs: version

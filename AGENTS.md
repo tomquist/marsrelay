@@ -5,13 +5,13 @@ config `marsrelay_esp32s3.yaml`). `CLAUDE.md` is a symlink to this file.
 
 ## Dev setup
 
-Work in a virtualenv and install ESPHome pinned to the same version the wifi
-fork is based on (`components/wifi/UPSTREAM_VERSION`):
+Work in a virtualenv and install ESPHome pinned to the version CI uses
+(`ESPHOME_VERSION`):
 
 ```sh
 python3 -m venv .venv && . .venv/bin/activate
 pip install -U pip setuptools wheel
-pip install "esphome==$(cat components/wifi/UPSTREAM_VERSION)" pytest
+pip install "esphome==$(cat ESPHOME_VERSION)" pytest
 ```
 
 The venv keeps this isolated from the system Python; on some distros installing
@@ -37,16 +37,12 @@ tests and CI's `build-remote` job all rewrite it.
 firmware build (and real-device flash) only happens via `esphome/build-action`
 in CI (`.github/workflows/`). Match CI behavior; don't loosen the version pin.
 
-## The vendored `wifi` fork
+## Keeping the access point up
 
-`components/wifi/` is upstream ESPHome's `wifi` component plus one patch
-(`patches/marsrelay-ap-sta.patch`) that makes the AP stay up alongside STA by
-default (`ap_mode: ALWAYS_ON`, `post_connect_roaming: false`).
-Do not hand-edit the vendored files to update ESPHome. Instead:
-
-```sh
-scripts/update-wifi.sh <esphome_version>   # bump + 3-way re-apply the patch
-scripts/check-wifi-fork.sh                 # assert tree == upstream + patch (also runs in CI)
-```
-
-See `components/wifi/README.md` for the full rationale.
+ESPHome's `wifi` AP is a fallback by default: it shuts down once the station
+connects, but the batteries and meters on the Marsrelay's AP need it to stay.
+Every Marsrelay component auto-loads `components/marsrelay_ap`, which switches
+`wifi` to `ap_mode: ALWAYS_ON` and `post_connect_roaming: false` (ESP32 only)
+during final validation. Users' downloaded YAML pulls every component from this
+repo, so they get it without editing their config. A new component that serves
+devices on the AP should auto-load it too.

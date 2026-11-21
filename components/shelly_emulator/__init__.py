@@ -16,7 +16,7 @@ from esphome.components import sensor
 def AUTO_LOAD() -> list[str]:
     # Ensure required core components are loaded so their build flags/libs are available.
     # In particular, the ESPHome `json` component pulls in ArduinoJson for both Arduino and ESP-IDF.
-    auto_load: list[str] = []
+    auto_load: list[str] = ["marsrelay_ap"]
     if CORE.is_esp32:
         auto_load.extend(["socket", "json"])
     return auto_load

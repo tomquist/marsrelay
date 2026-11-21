@@ -20,7 +20,7 @@ from esphome.types import ConfigType
 
 
 def AUTO_LOAD() -> list[str]:
-    auto_load = []
+    auto_load = ["marsrelay_ap"]
     if CORE.is_esp32:
         auto_load.append("socket")
     return auto_load

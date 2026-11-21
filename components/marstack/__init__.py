@@ -38,7 +38,7 @@ CONF_POWER_VERSION = "power_version"
 # B2500 firmware caps its maximum output power here whatever it is told.
 _B2500_MAX_OUTPUT_W = 800
 
-AUTO_LOAD = ["web_server_base", "json"]
+AUTO_LOAD = ["web_server_base", "json", "marsrelay_ap"]
 CODEOWNERS = ["@marsrelay"]
 
 marstack_ns = cg.esphome_ns.namespace("marstack")
