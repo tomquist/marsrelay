@@ -1,5 +1,5 @@
 diff --git a/components/wifi/wifi_component.cpp b/components/wifi/wifi_component.cpp
-index afaccbf..1a1ce57 100644
+index afaccbf..15c0da0 100644
 --- a/components/wifi/wifi_component.cpp
 +++ b/components/wifi/wifi_component.cpp
 @@ -948,7 +948,16 @@ void WiFiComponent::loop() {
@@ -48,7 +48,7 @@ index afaccbf..1a1ce57 100644
 -      this->disable_ap_();
 -#endif
 +      // marsrelay: keep the AP enabled alongside the STA connection and only
-+      // end its portal, as ap_mode: persistent does (upstream's fallback AP is
++      // end its portal, as ap_mode: ALWAYS_ON does (upstream's fallback AP is
 +      // disabled here via this->disable_ap_()).
 +      ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
 +      this->end_ap_portal_();

@@ -35,7 +35,7 @@ with a `// marsrelay:` comment so they're easy to find:
 2. **Keep the AP enabled after STA connects.**
    Upstream calls `this->disable_ap_()` to disable the fallback AP once the STA
    associates. We only end its captive portal instead, as upstream's
-   `ap_mode: persistent` does, so AP+STA stay up together.
+   `ap_mode: ALWAYS_ON` does, so AP+STA stay up together.
 
 To see (and verify) the exact diff against upstream:
 

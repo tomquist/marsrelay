@@ -1842,7 +1842,7 @@ void WiFiComponent::check_connecting_finished(uint32_t now) {
 #ifdef WIFI_AP_HAS_PORTAL
     if (this->has_ap()) {
       // marsrelay: keep the AP enabled alongside the STA connection and only
-      // end its portal, as ap_mode: persistent does (upstream's fallback AP is
+      // end its portal, as ap_mode: ALWAYS_ON does (upstream's fallback AP is
       // disabled here via this->disable_ap_()).
       ESP_LOGD(TAG, "Keeping AP enabled (AP+STA)");
       this->end_ap_portal_();
