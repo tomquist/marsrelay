@@ -46,3 +46,8 @@ Every Marsrelay component auto-loads `components/marsrelay_ap`, which switches
 during final validation. Users' downloaded YAML pulls every component from this
 repo, so they get it without editing their config. A new component that serves
 devices on the AP should auto-load it too.
+
+`components/wifi/__init__.py` is not a fork: it only loads ESPHome's own `wifi`
+component in its place. Marsrelay used to ship a fork there, and ESPHome's
+cached copy of this repo keeps that fork's `__pycache__` after an update, which
+ESPHome would otherwise load as a broken `wifi` component. Don't delete it.
